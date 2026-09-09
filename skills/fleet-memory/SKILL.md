@@ -37,3 +37,21 @@ Execute a safe terminal command on the remote workstation (e.g. `nvidia-smi`, un
 
 ### 5. `desktop_read_file` (Option C - Fleet Mesh)
 Read an authorized file from the remote workstation under the user directory.
+
+### 6. `desktop_power` (Option C - Fleet Mesh)
+Gracefully manage the remote workstation's power state from your cloud daemon:
+- `action` (string, default "shutdown"): "shutdown", "restart", or "cancel".
+- `delay_seconds` (int, default 60): Grace buffer before execution (allows cancellation).
+
+## Multi-Agent Persona Synchronization Pattern
+When running different personas across fleet nodes (e.g. a desktop butler agent on Node 3 and a cloud hub on Node 1), prevent identity fragmentation by committing a shared persona slot:
+```python
+fleet_memory_store(
+    text="Fleet Agents:\n- Node 3 (Desktop): Winston (Personal butler & GPU aide-de-camp)\n- Node 1 (VPS): Hermes (Cloud hub & Telegram gateway)\n- Node 2 (Laptop): Work Agent (Enterprise solutions)",
+    slot_name="fleet_personas",
+    client_id="fleet_identity",
+    target_domain="shared",
+    pinned=True
+)
+```
+Every agent across the mesh can now query `fleet_memory_search(query="who is Winston?")` and resolve peer identities instantly.

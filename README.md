@@ -194,6 +194,7 @@ For operators who want their 24/7 cloud node (e.g. Telegram bot) to **execute li
    - `desktop_status`: Returns live GPU temperature, VRAM usage, and workstation heartbeat.
    - `desktop_exec`: Executes safe, sandboxed shell commands remotely.
    - `desktop_read_file`: Fetches authorized documents under user home directory.
+   - `desktop_power`: Gracefully initiates remote shutdown, restart, or abort with customizable delay.
 
 ---
 

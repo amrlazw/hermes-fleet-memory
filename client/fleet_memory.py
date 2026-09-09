@@ -322,6 +322,33 @@ if HAS_MCP and mcp:
         except Exception as e:
             return {"status": "error", "message": f"Bridge communication error: {e}"}
 
+    @mcp.tool(
+        name="desktop_power",
+        description="Gracefully shutdown, restart, or cancel a pending power-off on the remote workstation."
+    )
+    def desktop_power(action: str = "shutdown", delay_seconds: int = 60) -> Dict[str, Any]:
+        """Manage workstation power state: 'shutdown', 'restart', or 'cancel'."""
+        import json, urllib.request, urllib.error
+        try:
+            data = json.dumps({"action": action, "delay": delay_seconds}).encode("utf-8")
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{BRIDGE_PORT}/power",
+                data=data,
+                headers={
+                    "Authorization": f"Bearer {QDRANT_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode("utf-8"))
+            except Exception:
+                return {"error": f"HTTP error {e.code}: {e.reason}"}
+        except Exception as e:
+            return {"status": "error", "message": f"Bridge communication error: {e}"}
+
 
 def bootstrap_collection():
     client = get_client()

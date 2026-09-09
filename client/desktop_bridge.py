@@ -202,6 +202,50 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send_json(500, {"error": f"File read error: {e}"})
 
+        elif self.path == "/power":
+            action = req_data.get("action", "shutdown").lower().strip()
+            delay = int(req_data.get("delay", 60))
+            if delay < 0:
+                delay = 0
+
+            # Detect platform
+            is_win = sys.platform == "win32"
+
+            if action == "shutdown":
+                if is_win:
+                    cmd = f'shutdown.exe /s /t {delay} /c "Remote shutdown initiated via Hermes Fleet"'
+                else:
+                    cmd = f'shutdown -h +{max(1, delay // 60)} "Remote shutdown initiated via Hermes Fleet"'
+                subprocess.Popen(cmd, shell=True)
+                self._send_json(200, {
+                    "status": "shutdown_initiated",
+                    "action": "shutdown",
+                    "delay_seconds": delay,
+                    "message": f"System shutdown initiated. Power off in {delay}s. Use action='cancel' to abort."
+                })
+            elif action == "restart":
+                if is_win:
+                    cmd = f'shutdown.exe /r /t {delay} /c "Remote restart initiated via Hermes Fleet"'
+                else:
+                    cmd = f'shutdown -r +{max(1, delay // 60)} "Remote restart initiated via Hermes Fleet"'
+                subprocess.Popen(cmd, shell=True)
+                self._send_json(200, {
+                    "status": "restart_initiated",
+                    "action": "restart",
+                    "delay_seconds": delay,
+                    "message": f"System restart initiated. Reboot in {delay}s. Use action='cancel' to abort."
+                })
+            elif action in ("cancel", "abort"):
+                cancel_cmd = "shutdown.exe /a" if is_win else "shutdown -c"
+                res = subprocess.run(cancel_cmd, shell=True, capture_output=True, text=True)
+                self._send_json(200, {
+                    "status": "cancelled",
+                    "message": "Scheduled shutdown or restart has been aborted successfully.",
+                    "exit_code": res.returncode
+                })
+            else:
+                self._send_json(400, {"error": "Invalid action. Supported: 'shutdown', 'restart', 'cancel'"})
+
         else:
             self._send_json(404, {"error": "Not Found"})
 
