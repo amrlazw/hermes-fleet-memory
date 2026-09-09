@@ -1,0 +1,14 @@
+[Unit]
+Description=WSTunnel Server for Hermes Fleet Ingress
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/wstunnel server --websocket-ping-frequency 30s ws://127.0.0.1:8443
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

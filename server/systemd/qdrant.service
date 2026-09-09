@@ -1,0 +1,15 @@
+[Unit]
+Description=Qdrant Native Vector Database for Hermes Fleet Memory
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/qdrant
+ExecStart=/usr/local/bin/qdrant --config-path /opt/qdrant/config/config.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

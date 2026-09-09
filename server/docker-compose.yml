@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    container_name: fleet-qdrant
+    restart: always
+    environment:
+      - QDRANT__SERVICE__API_KEY=${FLEET_QDRANT_KEY}
+    volumes:
+      - ./qdrant_data:/qdrant/storage
+    ports:
+      - "127.0.0.1:6333:6333"
+
+  wstunnel:
+    image: erebe/wstunnel:v10.7.1
+    container_name: fleet-wstunnel
+    restart: always
+    command: >
+      server
+      --websocket-ping-frequency 30s
+      ws://0.0.0.0:8443
+    network_mode: host
+
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: fleet-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy_data:/data
+      - ./caddy_config:/config
+    network_mode: host

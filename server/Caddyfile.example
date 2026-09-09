@@ -1,0 +1,19 @@
+# hermes-fleet-memory: Production Caddy Gatekeeper
+# Terminates public TLS and restricts ingress strictly to requests presenting the 256-bit PSK.
+
+brain.yourdomain.com {
+    # Matcher for authorized fleet nodes presenting the pre-shared key
+    @fleet_auth {
+        header X-Fleet-Key "YOUR_GENERATED_256BIT_SECRET_HERE"
+    }
+
+    # Route authorized WebSocket connections directly to WSTunnel
+    handle @fleet_auth {
+        reverse_proxy 127.0.0.1:8443
+    }
+
+    # Default fallback: reject all crawlers, scanners, and unauthorized queries
+    handle {
+        respond "Fleet Node Unauthorized" 403
+    }
+}
