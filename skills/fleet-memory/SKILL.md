@@ -13,7 +13,7 @@ Universal on-demand vector memory, domain-isolated vaults, and remote execution 
 ## Fundamental Rule: Vector Retrieval Over Local Shell Commands
 When the user asks about:
 - Personal desktop hardware specs, RTX 3070 Ti undervolting, or thermal profiles
-- Enterprise payment gateway configurations (DOKU, SenangPay, webhooks)
+- Enterprise payment gateway configurations (webhooks, B2B settlement, payment routing)
 - Infrastructure baselines, Oracle Cloud VPS setups, Caddy routing, or homelab specs
 - Architectural notes, past decisions, or multi-node state
 
@@ -33,7 +33,7 @@ When the user asks about:
 
 ### 1. `fleet_memory_search`
 Query fleet vector memory on-demand:
-- `query` (str): Search inquiry (e.g. "RTX 3070 Ti undervolt", "DOKU webhook secret").
+- `query` (str): Search inquiry (e.g. "RTX 3070 Ti undervolt", "payment webhook secret").
 - `target_domain` (optional): "personal", "work", "shared", or "all" (must match node permissions).
 - `limit` (int, default 5): Maximum cards to return.
 
@@ -41,7 +41,7 @@ Query fleet vector memory on-demand:
 Store or update knowledge in the vector store:
 - `text` (str): Authoritative factual markdown or documentation.
 - `slot_name` (optional): **Track A Deterministic Slot** (e.g. `gpu_profile`, `vps_caddy_spec`). Generates deterministic UUID5 ID for $O(1)$ in-place overwrites. Automatically pinned.
-- `client_id` (optional): Component tag (e.g. `desktop_hardware`, `doku_gateway`).
+- `client_id` (optional): Component tag (e.g. `desktop_hardware`, `payment_gateway`).
 - `target_domain` (optional): "personal", "work", or "shared".
 - `pinned` (bool): If True, protects episodic records from the 90-day cleaner.
 - **Semantic Deduplication:** If `slot_name` is omitted (Track B episodic), the engine automatically checks for existing memories with $\ge 0.95$ cosine similarity. Near-verbatim notes refresh the existing point in-place with an incremented revision rather than bloating the index.

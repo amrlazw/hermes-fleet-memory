@@ -88,7 +88,7 @@ def test_personal_node_denied_work_store(monkeypatch):
     with pytest.raises(PermissionError) as exc_info:
         fleet_memory.fleet_memory_store(
             text="Client API credentials",
-            client_id="doku",
+            client_id="payment_gw",
             slot_name="api_keys",
             target_domain="work"
         )
