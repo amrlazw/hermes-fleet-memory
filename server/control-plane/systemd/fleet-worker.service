@@ -1,0 +1,29 @@
+[Unit]
+Description=Fleet Task Worker
+After=network-online.target fleet-control-plane.service
+Wants=fleet-control-plane.service
+
+[Service]
+Type=simple
+# EDIT: user and paths for this host.
+User=%i
+WorkingDirectory=%h/.fleet/control-plane
+Environment=FLEET_HOME=%h/.fleet
+EnvironmentFile=-%h/.fleet/.env
+ExecStart=/usr/bin/env python3 worker.py
+Restart=always
+RestartSec=3s
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.fleet
+
+# Optional: keep the worker off inference cores on a shared box.
+#CPUAffinity=0
+Nice=10
+MemoryMax=192M
+
+[Install]
+WantedBy=default.target

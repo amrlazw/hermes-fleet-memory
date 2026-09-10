@@ -1,0 +1,30 @@
+[Unit]
+Description=Fleet Control Plane API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# EDIT: user and paths for this host. Everything else is env-driven.
+User=%i
+WorkingDirectory=%h/.fleet/control-plane
+Environment=FLEET_HOME=%h/.fleet
+EnvironmentFile=-%h/.fleet/.env
+ExecStart=/usr/bin/env python3 app.py
+Restart=always
+RestartSec=5s
+
+# Hardening. ReadWritePaths must cover FLEET_HOME so the DB and keys persist.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.fleet
+
+# Resource bounds. Core pinning is OPTIONAL - enable only if this box also
+# runs latency-sensitive inference and you want the API off those cores.
+#CPUAffinity=0
+MemoryMax=256M
+
+[Install]
+WantedBy=default.target
