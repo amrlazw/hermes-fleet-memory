@@ -1,18 +1,19 @@
 ---
 name: fleet-memory
 description: Distributed vector memory and remote workstation execution bridge for Hermes agent fleets.
-version: 1.0.0
-author: Amirul Azwan
+version: 1.1.0
+author: Amirul Azwan <amirulazw94@gmail.com>
 license: MIT
 ---
 
-# Fleet Memory (hermes-fleet-memory)
+# Fleet Memory & Task Plane (hermes-fleet-memory)
 
-This skill integrates the `fleet_memory_search` and `fleet_memory_store` MCP tools into Hermes, providing zero-ambient-bloat distributed vector memory across multiple nodes (VPS, Work PC, Personal Rig).
+This skill integrates the `fleet_memory_search`, `fleet_memory_store`, and asynchronous `fleet_task_delegate` MCP tools into Hermes, providing zero-ambient-bloat distributed vector memory and verified task coordination across multiple nodes (VPS, Work PC, Personal Rig).
 
 ## Essential Guidance
 - **Vector Retrieval Over Shell Probes:** When asked about hardware configurations, enterprise payment architectures, or past decisions on a remote machine, **ALWAYS call `fleet_memory_search(query=...)` first**. Do not run local bash/PowerShell probes expecting remote visibility.
 - **Deterministic Slots:** When saving configurations, pass both `slot_name` and `client_id` to update records in-place without duplicate drift.
+- **Asynchronous Delegation Over SSH / Scripting:** To trigger actions on other machines (e.g. sending Telegram notifications via Chester or scheduling GPU batches on Winston), call `fleet_task_delegate(target_node=..., action=..., params=...)`. Never attempt to SSH into peer machines or execute shell scripts directly.
 
 ## Tools Reference
 
@@ -29,16 +30,28 @@ Store or update an authoritative card:
 - `target_domain` (string, optional): "personal", "work", or "shared".
 - `pinned` (bool, optional): Protect from 90-day episodic expiry cleaner.
 
-### 3. `desktop_status` (Option C - Fleet Mesh)
+### 3. `fleet_task_delegate` (Asynchronous Blackboard Delegation)
+Asynchronously dispatch an allowlisted task to a remote fleet peer:
+- `target_node` (string, required): "chester" (Cloud Sentinel) or "winston" (GPU Workstation).
+- `action` (string, required): "telegram_notify", "fleet_health_ping", or "gpu_batch".
+- `params` (dict, optional): Action payload, e.g. `{"message": "Deployment verified"}`.
+- `priority` (string, optional): "low", "normal", or "critical" (default: "normal").
+
+### 4. `fleet_task_status` (Cryptographic Verification)
+Query execution progress and mathematically verify the Ed25519 completion receipt:
+- `task_id` (string, required): Task UUID returned by `fleet_task_delegate`.
+- `verify_receipt` (bool, optional): If true, fetches public key from `/.well-known/fleet-keys.json` and verifies the digital signature (default: true).
+
+### 5. `desktop_status` (Option C - Fleet Mesh)
 Check if the remote workstation is online and retrieve live GPU metrics (temperature, utilization, VRAM usage).
 
-### 4. `desktop_exec` (Option C - Fleet Mesh)
+### 6. `desktop_exec` (Option C - Fleet Mesh)
 Execute a safe terminal command on the remote workstation (e.g. `nvidia-smi`, undervolt scripts).
 
-### 5. `desktop_read_file` (Option C - Fleet Mesh)
+### 7. `desktop_read_file` (Option C - Fleet Mesh)
 Read an authorized file from the remote workstation under the user directory.
 
-### 6. `desktop_power` (Option C - Fleet Mesh)
+### 8. `desktop_power` (Option C - Fleet Mesh)
 Gracefully manage the remote workstation's power state from your cloud daemon:
 - `action` (string, default "shutdown"): "shutdown", "restart", or "cancel".
 - `delay_seconds` (int, default 60): Grace buffer before execution (allows cancellation).

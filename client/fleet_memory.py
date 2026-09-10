@@ -67,6 +67,22 @@ QDRANT_URL = os.getenv("FLEET_QDRANT_URL", None)
 # Optional Desktop Bridge port (default: 8099)
 BRIDGE_PORT = int(os.getenv("FLEET_BRIDGE_PORT", "8099"))
 
+# Fleet Task Plane Configuration
+FLEET_TASKS_URL = os.getenv("FLEET_TASKS_URL", "https://fleet.republikus.my").rstrip("/")
+FLEET_KEY = os.getenv("FLEET_KEY", None)
+if not FLEET_KEY:
+    try:
+        import json
+        auth_file = os.path.expanduser("~/.hermes/fleet_auth.json")
+        if os.path.exists(auth_file):
+            with open(auth_file, "r", encoding="utf-8") as _af:
+                _auth_data = json.load(_af)
+                FLEET_KEY = _auth_data.get("fleet_key")
+                if "fleet_endpoint" in _auth_data:
+                    FLEET_TASKS_URL = _auth_data["fleet_endpoint"].rstrip("/")
+    except Exception:
+        pass
+
 # Global singletons
 _client = None
 _embedder = None
@@ -369,6 +385,135 @@ if HAS_MCP and mcp:
                 return {"error": f"HTTP error {e.code}: {e.reason}"}
         except Exception as e:
             return {"status": "error", "message": f"Bridge communication error: {e}"}
+
+    @mcp.tool(
+        name="fleet_task_delegate",
+        description="Asynchronously delegate a task to another fleet node (e.g. 'chester' for Telegram alerts/health checks, 'winston' for GPU batches)."
+    )
+    def fleet_task_delegate(
+        target_node: str,
+        action: str,
+        params: Optional[Dict[str, Any]] = None,
+        priority: str = "normal"
+    ) -> Dict[str, Any]:
+        """
+        Asynchronously delegate an allowlisted task to another fleet node.
+        - target_node: Target node ('chester', 'winston').
+        - action: Action to perform ('telegram_notify', 'fleet_health_ping', 'gpu_batch').
+        - params: Parameters dict (e.g. {'message': 'Hello from Levi'}).
+        - priority: 'low', 'normal', or 'critical'.
+        """
+        import json, urllib.request, urllib.error
+        if not FLEET_KEY:
+            return {
+                "status": "error",
+                "message": "Missing FLEET_KEY. Configure FLEET_KEY in environment or ~/.hermes/fleet_auth.json."
+            }
+        
+        idempotency_key = f"mcp_{action}_{int(time.time() * 1000)}"
+        payload = {
+            "target": target_node.lower(),
+            "action": action,
+            "priority": priority.lower(),
+            "params": params or {},
+            "idempotency_key": idempotency_key
+        }
+        
+        url = f"{FLEET_TASKS_URL}/api/fleet/tasks"
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {FLEET_KEY}"
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+                return {
+                    "status": "accepted",
+                    "task_id": res.get("task_id"),
+                    "task_status": res.get("status"),
+                    "target": target_node,
+                    "action": action,
+                    "eta_seconds": res.get("eta_seconds", 1),
+                    "message": f"Task successfully queued for {target_node}. Use fleet_task_status(task_id='{res.get('task_id')}') to verify receipt."
+                }
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode("utf-8"))
+            except Exception:
+                return {"status": "error", "message": f"HTTP error {e.code}: {e.reason}"}
+        except Exception as e:
+            return {"status": "error", "message": f"Failed to reach Fleet Task Plane at {url}: {e}"}
+
+    @mcp.tool(
+        name="fleet_task_status",
+        description="Check execution status and verify Ed25519 cryptographic completion receipt for a delegated fleet task."
+    )
+    def fleet_task_status(task_id: str, verify_receipt: bool = True) -> Dict[str, Any]:
+        """
+        Check the status and verify Ed25519 completion receipt for a delegated task.
+        """
+        import json, urllib.request, urllib.error
+        if not FLEET_KEY:
+            return {
+                "status": "error",
+                "message": "Missing FLEET_KEY. Configure FLEET_KEY in environment or ~/.hermes/fleet_auth.json."
+            }
+            
+        url = f"{FLEET_TASKS_URL}/api/fleet/tasks/{task_id}"
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"Authorization": f"Bearer {FLEET_KEY}"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                task_data = json.loads(resp.read().decode("utf-8"))
+                
+            verified = None
+            if verify_receipt and task_data.get("status") == "completed" and task_data.get("ed25519_signature"):
+                try:
+                    from cryptography.hazmat.primitives.asymmetric import ed25519
+                    keys_url = f"{FLEET_TASKS_URL}/.well-known/fleet-keys.json"
+                    with urllib.request.urlopen(keys_url, timeout=5) as k_resp:
+                        jwks = json.loads(k_resp.read().decode("utf-8"))
+                        pub_hex = jwks["keys"][0]["x"]
+                    pub_key = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(pub_hex))
+                    receipt_payload = {
+                        "completed_at": round(task_data["completed_at"], 3),
+                        "result": task_data["result"],
+                        "task_id": task_data["task_id"]
+                    }
+                    canonical = json.dumps(receipt_payload, sort_keys=True, separators=(',', ':')).encode("utf-8")
+                    pub_key.verify(bytes.fromhex(task_data["ed25519_signature"]), canonical)
+                    verified = True
+                except Exception as e:
+                    verified = False
+                    task_data["verification_error"] = str(e)
+                    
+            return {
+                "status": task_data.get("status"),
+                "task_id": task_data.get("task_id"),
+                "target": task_data.get("target"),
+                "action": task_data.get("action"),
+                "result": task_data.get("result"),
+                "error": task_data.get("error"),
+                "receipt_verified": verified,
+                "kid": task_data.get("kid"),
+                "created_at": task_data.get("created_at"),
+                "completed_at": task_data.get("completed_at")
+            }
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode("utf-8"))
+            except Exception:
+                return {"status": "error", "message": f"HTTP error {e.code}: {e.reason}"}
+        except Exception as e:
+            return {"status": "error", "message": f"Failed to query task status at {url}: {e}"}
 
 
 def bootstrap_collection():
