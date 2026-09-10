@@ -1,0 +1,13 @@
+# Cursor Agent Operating Rules
+# Authoritative deployment protocol: see AGENTS.md
+
+1. Always install dependencies in active environment:
+   pip install "mcp[cli]" qdrant-client fastembed python-dotenv
+
+2. Autonomous initialization:
+   python client/fleet_memory.py --init --domain work
+
+3. Invariants:
+   - memory.provider MUST be none (zero ambient token bloat)
+   - Do not query remote bash scripts for cross-node actions; use fleet memory or task plane
+   - Always verify 5-point initialization output before reporting completion

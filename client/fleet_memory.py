@@ -393,15 +393,75 @@ def bootstrap_collection():
 def run_init():
     """
     Autonomous one-click client initialization:
-    1. Audits environment configuration (.env and Hermes profiles)
+    1. Audits or provisions environment configuration (.env and Hermes profiles)
     2. Probes Qdrant vector engine connectivity and round-trip latency
     3. Bootstraps collection and payload keyword indices
     4. Automatically registers FastMCP server in Hermes Agent (hermes mcp add)
     5. Sets Hermes memory.provider to 'none' (zero ambient token overhead)
     6. Executes a live self-test query
     """
+    import argparse
     import shutil
     import subprocess
+
+    global ENFORCED_DOMAIN, QDRANT_HOST, QDRANT_PORT, QDRANT_API_KEY, QDRANT_HTTPS, QDRANT_URL, _client
+
+    parser = argparse.ArgumentParser(description="Autonomous Client Node Initialization")
+    parser.add_argument("--init", action="store_true", help="Run initialization")
+    parser.add_argument("--setup", action="store_true", help="Alias for --init")
+    parser.add_argument("--domain", choices=["work", "personal", "shared", "all"], help="Node domain partition")
+    parser.add_argument("--url", help="Qdrant Cloud or remote endpoint URL")
+    parser.add_argument("--key", help="Qdrant API key or cluster secret")
+    parser.add_argument("--host", help="Qdrant host (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, help="Qdrant port (default: 6333)")
+    parser.add_argument("--https", choices=["true", "false"], help="Use HTTPS for Qdrant host/port")
+    
+    parsed, _ = parser.parse_known_args()
+
+    env_file = os.path.join(os.path.dirname(__file__), ".env")
+    env_example = os.path.join(os.path.dirname(__file__), ".env.example")
+
+    # If parameters were passed via CLI, update globals and optionally write .env
+    updated_env = False
+    new_domain = parsed.domain or ENFORCED_DOMAIN
+    new_url = parsed.url or QDRANT_URL
+    new_key = parsed.key or QDRANT_API_KEY
+    new_host = parsed.host or QDRANT_HOST
+    new_port = parsed.port or QDRANT_PORT
+    new_https = (parsed.https.lower() == "true") if parsed.https else QDRANT_HTTPS
+
+    # Auto-provision .env if no env exists in candidates
+    has_any_env = any(os.path.exists(p) for p in candidate_envs)
+    if (not has_any_env or parsed.domain or parsed.url or parsed.key) and not os.path.exists(env_file):
+        try:
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("# hermes-fleet-memory Auto-Provisioned Environment\n")
+                f.write(f"FLEET_HARD_DOMAIN={new_domain}\n")
+                if new_url:
+                    f.write(f"FLEET_QDRANT_URL={new_url}\n")
+                else:
+                    f.write(f"FLEET_QDRANT_HOST={new_host}\n")
+                    f.write(f"FLEET_QDRANT_PORT={new_port}\n")
+                    f.write(f"FLEET_QDRANT_HTTPS={'true' if new_https else 'false'}\n")
+                if new_key:
+                    f.write(f"FLEET_QDRANT_KEY={new_key}\n")
+                else:
+                    # Generate a secure cluster secret if none provided
+                    import secrets
+                    f.write(f"FLEET_QDRANT_KEY={secrets.token_hex(32)}\n")
+            print(f"[+] Created local client environment at: {env_file}")
+            updated_env = True
+        except Exception as e:
+            print(f"[!] Note: Could not auto-write .env: {e}")
+
+    # Re-apply globals
+    ENFORCED_DOMAIN = new_domain
+    QDRANT_URL = new_url
+    QDRANT_API_KEY = new_key
+    QDRANT_HOST = new_host
+    QDRANT_PORT = new_port
+    QDRANT_HTTPS = new_https
+    _client = None  # Reset client singleton to use updated endpoint
 
     print("\n" + "=" * 64)
     print(" hermes-fleet-memory : Autonomous Client Node Initialization")

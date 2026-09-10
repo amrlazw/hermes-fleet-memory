@@ -40,40 +40,34 @@
 <!-- ============================================================================== -->
 ## 🤖 For AI Coding Agents: Autonomous Deployment Contract
 
-If you are an AI Coding Agent (Hermes, Claude Code, Codex, Cursor) instructed by your human to deploy this repository, execute the following deterministic protocol:
+> **Full autonomous protocol, OS decision trees, and non-interactive flags:** See [AGENTS.md](AGENTS.md).
 
-### Step 1: Human Interview & Assessment (Mandatory Before Action)
-Inspect your current host OS and shell, then state your plan and ask your user 2 questions:
-1. **Hosting Path:**
-   - *"Do you have a Linux VPS (Option A), would you prefer a free 2-minute managed cloud via Qdrant Cloud Free Tier (Option B), or do you want the full Fleet Mesh with remote shell execution (Option C)?"*
-2. **Node Domain Assignment:**
-   - *"Is this host your Enterprise Work PC (`work`), your Home/Personal Workstation (`personal`), or your Sovereign Hub (`all`)?"*
+If you are an AI Coding Agent (Hermes, Claude Code, Codex, Cursor, Windsurf) instructed by your human to deploy this repository, execute the following deterministic protocol without open-ended interview loops:
 
-### Step 2: Phase 0 — Key Generation & Environment
-1. Generate a cryptographic 256-bit cluster secret:
-   ```bash
-   python -c "import secrets; print(secrets.token_hex(32))"
-   ```
-2. Install client dependencies in the active Python environment:
-   ```bash
-   pip install "mcp[cli]" qdrant-client fastembed python-dotenv
-   ```
-3. Populate `.env` from `client/.env.example` with the chosen endpoint and domain.
-
-### Step 3: Phase 1 & 2 — Autonomous Client Initialization (One-Click)
-Run the automated initialization command:
+### 1. Install Dependencies
+Install in the active Python environment:
 ```bash
-python client/fleet_memory.py --init
+pip install "mcp[cli]" qdrant-client fastembed python-dotenv
 ```
-This single command automatically:
-1. Audits environment configuration and domain isolation (`FLEET_HARD_DOMAIN`).
-2. Probes Qdrant vector engine connectivity and round-trip latency.
-3. Bootstraps collection `hermes_fleet_memory` and keyword payload indexes.
-4. Auto-registers the FastMCP server in Hermes Agent (`hermes mcp add`).
-5. Configures `memory.provider: none` (Zero ambient prompt bloat).
-6. Executes a live self-test vector query to verify end-to-end operation.
 
-*(Manual fallback: `python client/fleet_memory.py --bootstrap` then `hermes mcp add fleet-memory ...`)*
+### 2. Autonomous Initialization (One Command)
+Run the auto-provisioning initializer with the appropriate domain:
+```bash
+# Enterprise Work PC (Restricts to work + shared):
+python client/fleet_memory.py --init --domain work
+
+# Personal GPU Rig / Desktop (Restricts to personal + shared):
+python client/fleet_memory.py --init --domain personal
+
+# Sovereign Cloud Hub (Omniscient):
+python client/fleet_memory.py --init --domain all
+
+# Qdrant Cloud (Managed):
+python client/fleet_memory.py --init --url "https://xxxx.cloud.qdrant.io:6333" --key "your_api_key" --domain work
+```
+
+### 3. Deliver the 5-Point Verification Ledger
+Do not declare deployment complete without outputting the live confirmation from step 2 (`[OK] Connected`, `[OK] Collection validated`, `[OK] FastMCP registered`, `[OK] Zero-bloat verified`, `[OK] Test vector retrieved`).
 <!-- ============================================================================== -->
 <!-- END AGENT RUNBOOK CONTRACT -->
 <!-- ============================================================================== -->
