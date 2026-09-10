@@ -3,11 +3,21 @@
 
 1. Always install dependencies in active environment:
    pip install "mcp[cli]" qdrant-client fastembed python-dotenv
+   # control plane additionally: pip install fastapi uvicorn pydantic cryptography
 
 2. Autonomous initialization:
    python client/fleet_memory.py --init --domain work
+   # control plane: cd server/control-plane && python setup_fleet.py --init
 
-3. Invariants:
+3. Choose the right pipeline first:
+   - shared knowledge across machines -> fleet memory (AGENTS.md §A)
+   - durable cross-node work / notifications -> control plane (AGENTS.md §B)
+   - Do not install the unused pipeline.
+
+4. Invariants:
    - memory.provider MUST be none (zero ambient token bloat)
-   - Do not query remote bash scripts for cross-node actions; use fleet memory or task plane
-   - Always verify 5-point initialization output before reporting completion
+   - Do not query remote bash scripts for cross-node actions; use fleet memory or the task plane
+   - Never commit $FLEET_HOME (.env, fleet_ed25519.key, *.db) or any flk_ bearer token
+   - Never alter the canonical receipt byte format
+   - Always verify the matching ledger output (AGENTS.md §A.4 or §B.5) before reporting completion
+   - Ask the human at most one question; generate keys and config yourself

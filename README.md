@@ -41,6 +41,7 @@
 ## 🤖 For AI Coding Agents: Autonomous Deployment Contract
 
 > **Full autonomous protocol, OS decision trees, and non-interactive flags:** See [AGENTS.md](AGENTS.md).
+> The contract covers **both** pipelines — cross-device vector memory (§A) and the cross-node task plane (§B) — including when to pick each, and the mandatory verification ledger for each.
 
 If you are an AI Coding Agent (Hermes, Claude Code, Codex, Cursor, Windsurf) instructed by your human to deploy this repository, execute the following deterministic protocol without open-ended interview loops:
 
@@ -120,6 +121,7 @@ Choose the architecture that matches your setup:
 | **Option A: Self-Hosted VPS** | Any Linux VPS (Oracle Free Tier, Hetzner, DO) | $0 / month | 5 minutes | Operators who want full sovereign control over data and TLS. |
 | **Option B: Managed Cloud** | **No VPS needed** (Qdrant Cloud Free Tier) | **$0 / month** | **2 minutes** | **95% of users** wanting zero-DevOps cross-device memory. |
 | **Option C: Full Fleet Mesh** | Home PC + Relay VPS | $0 / month | 10 minutes | Remote shell command execution & file retrieval behind NAT. |
+| **Option D: Local Task Plane** | **None** (runs on machines you already have) | **$0 / month** | **2 minutes** | Durable, cryptographically verified cross-node task delegation & notifications. See [`server/control-plane`](server/control-plane/README.md). |
 
 ---
 
@@ -184,6 +186,32 @@ For operators who want their 24/7 cloud node (e.g. Telegram bot) to **execute li
    - `desktop_exec`: Executes safe, sandboxed shell commands remotely.
    - `desktop_read_file`: Fetches authorized documents under user home directory.
    - `desktop_power`: Gracefully initiates remote shutdown, restart, or abort with customizable delay.
+
+---
+
+### Option D: Local Task Plane (No VPS, No Docker)
+
+Durable cross-node task delegation with cryptographically verifiable completion
+receipts. Runs on machines you already own — a single laptop is a valid deployment.
+
+```bash
+cd server/control-plane
+pip install fastapi uvicorn pydantic cryptography
+python setup_fleet.py --init          # writes ~/.fleet/.env, keys, database
+python app.py                         # API on 127.0.0.1:8088
+python worker.py                      # worker for this node
+
+python client_delegate.py --action fleet_health_ping
+# -> status: completed
+#    receipt signature: VERIFIED
+```
+
+* **No VPS required.** Bind to loopback; add a TLS proxy only when you want remote peers.
+* **Telegram optional.** Without credentials, notification tasks complete as `skipped` — never a dead-letter loop.
+* **Closed action allowlist.** `fleet_health_ping`, `telegram_notify`, `gpu_batch`. No arbitrary code execution.
+* Ed25519 receipts let any peer verify a task ran, independently of the server that issued it.
+
+Full operations guide: [`server/control-plane/RUNBOOK.md`](server/control-plane/RUNBOOK.md)
 
 ---
 

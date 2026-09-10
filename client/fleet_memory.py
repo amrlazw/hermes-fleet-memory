@@ -67,8 +67,11 @@ QDRANT_URL = os.getenv("FLEET_QDRANT_URL", None)
 # Optional Desktop Bridge port (default: 8099)
 BRIDGE_PORT = int(os.getenv("FLEET_BRIDGE_PORT", "8099"))
 
-# Fleet Task Plane Configuration
-FLEET_TASKS_URL = os.getenv("FLEET_TASKS_URL", "https://fleet.republikus.my").rstrip("/")
+# Fleet Task Plane Configuration.
+# Defaults to a LOCAL control plane (see server/control-plane). Point this at a
+# shared host with FLEET_TASKS_URL or ~/.hermes/fleet_auth.json - never assume
+# someone else's server is reachable.
+FLEET_TASKS_URL = os.getenv("FLEET_TASKS_URL", "http://127.0.0.1:8088").rstrip("/")
 FLEET_KEY = os.getenv("FLEET_KEY", None)
 if not FLEET_KEY:
     try:
