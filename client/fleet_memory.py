@@ -18,12 +18,14 @@ warnings.filterwarnings("ignore")
 # Load environment variables from Hermes profile if available
 try:
     import dotenv
+    local_env = os.path.join(os.path.dirname(__file__), ".env")
+    if os.path.exists(local_env):
+        dotenv.load_dotenv(local_env, override=True)
     candidate_envs = [
         os.path.expanduser("~/.hermes/.env"),
         os.path.expandvars(r"%LOCALAPPDATA%\hermes\profiles\winston\.env"),
         os.path.expandvars(r"%USERPROFILE%\.hermes\.env"),
-        os.path.expanduser("~/.hermes/profiles/winston/.env"),
-        os.path.join(os.path.dirname(__file__), ".env")
+        os.path.expanduser("~/.hermes/profiles/winston/.env")
     ]
     for env_p in candidate_envs:
         if os.path.exists(env_p):
