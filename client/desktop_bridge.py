@@ -41,13 +41,13 @@ COMMAND_BLACKLIST = [
     r"\bdiskpart\b",
     r"\bbcdedit\b",
     r"rmdir\s+/[sS]",
-    r"rm\s+-rf\s+/[a-zA-Z]",
+    r"rm\s+-[a-zA-Z]*r[a-zA-Z]*f\s+.*",
     r"\bshutdown\b",
     r"\bstop-computer\b",
     r"\bnet\s+user\b",
     r"\breg\s+delete\b",
     r"set-mppreference",
-    r":(){ :|:& };:",
+    r":\(\){\s*:\|:&\s*};:",
 ]
 
 

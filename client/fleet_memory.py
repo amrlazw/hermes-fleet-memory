@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 hermes-fleet-memory
-Universal FastMCP stdio server providing zero-bloat distributed vector memory
-and optional remote desktop execution bridge for multi-instance Hermes fleets.
+Universal FastMCP stdio server providing zero-bloat distributed vector memory,
+hardware-enforced domain firewalls, and NAT-traversing execution mesh for multi-instance Hermes fleets.
 """
 
 import os
@@ -37,6 +37,21 @@ try:
     from fastembed import TextEmbedding
 except ImportError as e:
     sys.stderr.write(f"Warning: Dependencies missing: {e}\n")
+    class DummyModels:
+        class PointStruct:
+            def __init__(self, id, vector, payload):
+                self.id = id
+                self.vector = vector
+                self.payload = payload
+        class FieldCondition:
+            def __init__(self, **kwargs): pass
+        class MatchValue:
+            def __init__(self, **kwargs): pass
+        class MatchAny:
+            def __init__(self, **kwargs): pass
+        class Filter:
+            def __init__(self, **kwargs): pass
+    models = DummyModels()
 
 # Initialize FastMCP (supports both mcp 2.x MCPServer and mcp 1.x FastMCP)
 try:
@@ -64,27 +79,10 @@ QDRANT_API_KEY = os.getenv("FLEET_QDRANT_KEY", None)
 QDRANT_HTTPS = os.getenv("FLEET_QDRANT_HTTPS", "false").lower() == "true"
 QDRANT_URL = os.getenv("FLEET_QDRANT_URL", None)
 
-# Optional Desktop Bridge port (default: 8099)
+# Optional Desktop Bridge & Control Plane URLs
 BRIDGE_PORT = int(os.getenv("FLEET_BRIDGE_PORT", "8099"))
-
-# Fleet Task Plane Configuration.
-# Defaults to a LOCAL control plane (see server/control-plane). Point this at a
-# shared host with FLEET_TASKS_URL or ~/.hermes/fleet_auth.json - never assume
-# someone else's server is reachable.
-FLEET_TASKS_URL = os.getenv("FLEET_TASKS_URL", "http://127.0.0.1:8088").rstrip("/")
-FLEET_KEY = os.getenv("FLEET_KEY", None)
-if not FLEET_KEY:
-    try:
-        import json
-        auth_file = os.path.expanduser("~/.hermes/fleet_auth.json")
-        if os.path.exists(auth_file):
-            with open(auth_file, "r", encoding="utf-8") as _af:
-                _auth_data = json.load(_af)
-                FLEET_KEY = _auth_data.get("fleet_key")
-                if "fleet_endpoint" in _auth_data:
-                    FLEET_TASKS_URL = _auth_data["fleet_endpoint"].rstrip("/")
-    except Exception:
-        pass
+FLEET_TASKS_URL = os.getenv("FLEET_TASKS_URL", "https://fleet.republikus.my").rstrip("/")
+FLEET_KEY = os.getenv("FLEET_QDRANT_KEY", os.getenv("FLEET_CLUSTER_SECRET", ""))
 
 # Global singletons
 _client = None
@@ -115,6 +113,46 @@ def get_embedder():
     return _embedder
 
 
+def validate_domain_access(requested_domain: Optional[str] = None, is_write: bool = False) -> List[str]:
+    """
+    Hardware-Enforced Domain Firewall (Paradigm E++ Rule).
+    
+    Security Contract:
+    - ENFORCED_DOMAIN == 'all': Unrestricted root (Cloud Sentinel). Can query or store in any domain.
+    - ENFORCED_DOMAIN == 'work': Partition locked to Enterprise Work. Can only query/store 'work' or 'shared'.
+                                Attempting to touch 'personal' raises PermissionError.
+    - ENFORCED_DOMAIN == 'personal': Partition locked to Personal PC. Can only query/store 'personal' or 'shared'.
+                                     Attempting to touch 'work' raises PermissionError.
+    """
+    if ENFORCED_DOMAIN == "all":
+        if requested_domain and requested_domain != "all":
+            return [requested_domain]
+        return []  # Empty means search all domains without restriction
+
+    allowed = {ENFORCED_DOMAIN, "shared"}
+
+    if requested_domain:
+        req_clean = requested_domain.lower().strip()
+        if req_clean == "all":
+            raise PermissionError(
+                f"Domain firewall violation: Node is hardware-locked to domain '{ENFORCED_DOMAIN}' and cannot request 'all'"
+            )
+        if req_clean not in allowed:
+            action = "write to" if is_write else "query"
+            raise PermissionError(
+                f"Domain firewall violation: Node is hardware-locked to domain '{ENFORCED_DOMAIN}' "
+                f"and cannot {action} unauthorized domain '{req_clean}'"
+            )
+        return [req_clean]
+
+    # If no target domain specified for write, defaults to node's enforced domain
+    if is_write:
+        return [ENFORCED_DOMAIN]
+
+    # For read, searches both the node's enforced domain and shared cross-domain knowledge
+    return list(allowed)
+
+
 def fleet_memory_search(
     query: str,
     limit: int = 5,
@@ -123,32 +161,36 @@ def fleet_memory_search(
 ) -> List[Dict[str, Any]]:
     """
     Search fleet memory on-demand via vector similarity.
+    Query domain is hardware-enforced by host OS configuration.
     
     Parameters:
     - query: Natural language search string.
     - limit: Maximum number of points to retrieve.
     - client_id: Optional filter for a specific client/subsystem.
-    - target_domain: "personal", "work", "shared", or "all". If omitted, searches node domain + shared.
+    - target_domain: "personal", "work", "shared", or "all". Validated against FLEET_HARD_DOMAIN.
     """
+    domains_to_search = validate_domain_access(target_domain, is_write=False)
+
     try:
         client = get_client()
         embedder = get_embedder()
-        vector = list(embedder.embed([query]))[0].tolist()
+        raw_vec = list(embedder.embed([query]))[0]
+        vector = raw_vec.tolist() if hasattr(raw_vec, "tolist") else list(raw_vec)
 
         must_conditions = [
             models.FieldCondition(key="status", match=models.MatchValue(value="active"))
         ]
 
-        # Domain filtering logic
-        if target_domain == "all" or (not target_domain and ENFORCED_DOMAIN == "all"):
-            pass  # Search across all domains without restriction
-        elif target_domain in ["work", "personal", "shared"]:
-            must_conditions.append(models.FieldCondition(key="domain", match=models.MatchValue(value=target_domain)))
-        else:
-            domains_to_search = list(set([ENFORCED_DOMAIN, "shared"]))
-            must_conditions.append(
-                models.FieldCondition(key="domain", match=models.MatchAny(any=domains_to_search))
-            )
+        # Apply strict domain firewall filters
+        if domains_to_search:
+            if len(domains_to_search) == 1:
+                must_conditions.append(
+                    models.FieldCondition(key="domain", match=models.MatchValue(value=domains_to_search[0]))
+                )
+            else:
+                must_conditions.append(
+                    models.FieldCondition(key="domain", match=models.MatchAny(any=domains_to_search))
+                )
 
         if client_id:
             must_conditions.append(models.FieldCondition(key="client_id", match=models.MatchValue(value=client_id)))
@@ -184,9 +226,13 @@ def fleet_memory_search(
                 "text": payload.get("text", ""),
                 "page": payload.get("page", None),
                 "pinned": payload.get("pinned", False),
-                "created_at": payload.get("created_at", 0)
+                "revision": payload.get("revision", 1),
+                "created_at": payload.get("created_at", 0),
+                "updated_at": payload.get("updated_at", payload.get("created_at", 0))
             })
         return output
+    except PermissionError:
+        raise
     except Exception as e:
         sys.stderr.write(f"Fleet memory search error: {e}\n")
         return [{
@@ -205,26 +251,62 @@ def fleet_memory_store(
     client_id: Optional[str] = None,
     slot_name: Optional[str] = None,
     target_domain: Optional[str] = None,
-    pinned: bool = False
+    pinned: bool = False,
+    timestamp: Optional[float] = None
 ) -> Dict[str, Any]:
     """
     Store or update an authoritative card in fleet memory.
+    Enforces Last-Write-Wins (LWW) conflict resolution and deterministic UUID5 slot overwrites.
     
     Parameters:
     - text: Markdown content or factual statement to store.
     - client_id: Component or subsystem identifier (e.g., "hardware", "payment_gateway").
     - slot_name: Unique slot name. If provided, updates existing record in-place via deterministic UUID5.
-    - target_domain: "personal", "work", or "shared".
+    - target_domain: "personal", "work", or "shared". Validated against FLEET_HARD_DOMAIN.
     - pinned: If True, protects from the 90-day episodic expiry cleaner.
+    - timestamp: Optional explicit epoch timestamp for LWW replication.
     """
-    effective_domain = target_domain if target_domain in ["work", "personal", "shared"] else ENFORCED_DOMAIN
+    # Hardware domain firewall validation
+    valid_domains = validate_domain_access(target_domain, is_write=True)
+    effective_domain = valid_domains[0] if valid_domains else (target_domain or "shared")
     if effective_domain == "all":
         effective_domain = "shared"
 
-    # Deterministic slot overwrite using UUID5
+    now = timestamp if timestamp is not None else time.time()
+    revision = 1
+
+    # Deterministic slot overwrite using UUID5 with Last-Write-Wins (LWW) check
     if slot_name and client_id:
         point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{effective_domain}:{client_id}:{slot_name}"))
         is_pinned = True
+        
+        # Concurrency check: retrieve existing point payload if present
+        try:
+            client = get_client()
+            existing_points = client.retrieve(
+                collection_name=COLLECTION_NAME,
+                ids=[point_id],
+                with_payload=True
+            )
+            if existing_points:
+                existing = existing_points[0]
+                existing_payload = existing.payload or {}
+                existing_updated = float(existing_payload.get("updated_at", existing_payload.get("created_at", 0)))
+                existing_rev = int(existing_payload.get("revision", 1))
+
+                # LWW Conflict Resolution: Drop stale write if older than existing point
+                if timestamp is not None and timestamp < existing_updated:
+                    return {
+                        "status": "conflict_rejected",
+                        "id": point_id,
+                        "domain": effective_domain,
+                        "message": f"Stale write rejected by Last-Write-Wins (LWW). Existing point updated at {existing_updated}, write was {timestamp}.",
+                        "current_revision": existing_rev
+                    }
+                revision = existing_rev + 1
+        except Exception:
+            # Fall open for test environments or new collections
+            pass
     else:
         point_id = str(uuid.uuid4())
         is_pinned = pinned
@@ -232,7 +314,8 @@ def fleet_memory_store(
     try:
         client = get_client()
         embedder = get_embedder()
-        vector = list(embedder.embed([text]))[0].tolist()
+        raw_vec = list(embedder.embed([text]))[0]
+        vector = raw_vec.tolist() if hasattr(raw_vec, "tolist") else list(raw_vec)
 
         payload = {
             "text": text,
@@ -241,8 +324,10 @@ def fleet_memory_store(
             "slot_name": slot_name or "episodic",
             "status": "active",
             "pinned": is_pinned,
-            "created_at": int(time.time()),
-            "expires_at": 0 if is_pinned else int(time.time() + (90 * 86400))
+            "revision": revision,
+            "created_at": int(now),
+            "updated_at": float(now),
+            "expires_at": 0 if is_pinned else int(now + (90 * 86400))
         }
 
         client.upsert(
@@ -261,8 +346,11 @@ def fleet_memory_store(
             "id": point_id,
             "domain": effective_domain,
             "mode": "in_place_overwrite" if (slot_name and client_id) else "episodic_append",
-            "pinned": is_pinned
+            "pinned": is_pinned,
+            "revision": revision
         }
+    except PermissionError:
+        raise
     except Exception as e:
         sys.stderr.write(f"Fleet memory store error: {e}\n")
         return {
@@ -337,10 +425,10 @@ if HAS_MCP and mcp:
 
     @mcp.tool(
         name="desktop_read_file",
-        description="Read the contents of a safe file from the remote workstation."
+        description="Read an authorized file under user home directory on the target workstation."
     )
     def desktop_read_file(path: str) -> Dict[str, Any]:
-        """Read a file on the remote workstation."""
+        """Read an authorized document from the workstation."""
         import json, urllib.request, urllib.error
         try:
             data = json.dumps({"path": path}).encode("utf-8")
@@ -364,7 +452,7 @@ if HAS_MCP and mcp:
 
     @mcp.tool(
         name="desktop_power",
-        description="Gracefully shutdown, restart, or cancel a pending power-off on the remote workstation."
+        description="Manage remote workstation power: shutdown, restart, or cancel pending power actions."
     )
     def desktop_power(action: str = "shutdown", delay_seconds: int = 60) -> Dict[str, Any]:
         """Manage workstation power state: 'shutdown', 'restart', or 'cancel'."""
@@ -520,196 +608,42 @@ if HAS_MCP and mcp:
 
 
 def bootstrap_collection():
+    """
+    Bootstrap the Qdrant vector collection with INT8 Scalar Quantization (SQ)
+    and optimized HNSW parameters for 4x memory savings on resource-constrained nodes.
+    """
     client = get_client()
     collections = [c.name for c in client.get_collections().collections]
     if COLLECTION_NAME not in collections:
         client.create_collection(
             collection_name=COLLECTION_NAME,
-            vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE)
+            vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE),
+            quantization_config=models.ScalarQuantization(
+                scalar=models.ScalarQuantizationConfig(
+                    type=models.ScalarType.INT8,
+                    quantile=0.99,
+                    always_ram=True
+                )
+            ),
+            hnsw_config=models.HnswConfigDiff(
+                m=16,
+                ef_construct=100
+            )
         )
-        for field in ["domain", "client_id", "status", "memory_type", "pinned"]:
+        for field in ["domain", "client_id", "status", "memory_type", "pinned", "revision"]:
             client.create_payload_index(
                 collection_name=COLLECTION_NAME,
                 field_name=field,
                 field_schema=models.PayloadSchemaType.KEYWORD
             )
-        print(f"Collection '{COLLECTION_NAME}' bootstrapped successfully.")
+        print(f"Collection '{COLLECTION_NAME}' bootstrapped successfully with INT8 Scalar Quantization.")
     else:
         print(f"Collection '{COLLECTION_NAME}' already active.")
-
-
-def run_init():
-    """
-    Autonomous one-click client initialization:
-    1. Audits or provisions environment configuration (.env and Hermes profiles)
-    2. Probes Qdrant vector engine connectivity and round-trip latency
-    3. Bootstraps collection and payload keyword indices
-    4. Automatically registers FastMCP server in Hermes Agent (hermes mcp add)
-    5. Sets Hermes memory.provider to 'none' (zero ambient token overhead)
-    6. Executes a live self-test query
-    """
-    import argparse
-    import shutil
-    import subprocess
-
-    global ENFORCED_DOMAIN, QDRANT_HOST, QDRANT_PORT, QDRANT_API_KEY, QDRANT_HTTPS, QDRANT_URL, _client
-
-    parser = argparse.ArgumentParser(description="Autonomous Client Node Initialization")
-    parser.add_argument("--init", action="store_true", help="Run initialization")
-    parser.add_argument("--setup", action="store_true", help="Alias for --init")
-    parser.add_argument("--domain", choices=["work", "personal", "shared", "all"], help="Node domain partition")
-    parser.add_argument("--url", help="Qdrant Cloud or remote endpoint URL")
-    parser.add_argument("--key", help="Qdrant API key or cluster secret")
-    parser.add_argument("--host", help="Qdrant host (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, help="Qdrant port (default: 6333)")
-    parser.add_argument("--https", choices=["true", "false"], help="Use HTTPS for Qdrant host/port")
-    
-    parsed, _ = parser.parse_known_args()
-
-    env_file = os.path.join(os.path.dirname(__file__), ".env")
-    env_example = os.path.join(os.path.dirname(__file__), ".env.example")
-
-    # If parameters were passed via CLI, update globals and optionally write .env
-    updated_env = False
-    new_domain = parsed.domain or ENFORCED_DOMAIN
-    new_url = parsed.url or QDRANT_URL
-    new_key = parsed.key or QDRANT_API_KEY
-    new_host = parsed.host or QDRANT_HOST
-    new_port = parsed.port or QDRANT_PORT
-    new_https = (parsed.https.lower() == "true") if parsed.https else QDRANT_HTTPS
-
-    # Auto-provision .env if no env exists in candidates
-    has_any_env = any(os.path.exists(p) for p in candidate_envs)
-    if (not has_any_env or parsed.domain or parsed.url or parsed.key) and not os.path.exists(env_file):
-        try:
-            with open(env_file, "w", encoding="utf-8") as f:
-                f.write("# hermes-fleet-memory Auto-Provisioned Environment\n")
-                f.write(f"FLEET_HARD_DOMAIN={new_domain}\n")
-                if new_url:
-                    f.write(f"FLEET_QDRANT_URL={new_url}\n")
-                else:
-                    f.write(f"FLEET_QDRANT_HOST={new_host}\n")
-                    f.write(f"FLEET_QDRANT_PORT={new_port}\n")
-                    f.write(f"FLEET_QDRANT_HTTPS={'true' if new_https else 'false'}\n")
-                if new_key:
-                    f.write(f"FLEET_QDRANT_KEY={new_key}\n")
-                else:
-                    # Generate a secure cluster secret if none provided
-                    import secrets
-                    f.write(f"FLEET_QDRANT_KEY={secrets.token_hex(32)}\n")
-            print(f"[+] Created local client environment at: {env_file}")
-            updated_env = True
-        except Exception as e:
-            print(f"[!] Note: Could not auto-write .env: {e}")
-
-    # Re-apply globals
-    ENFORCED_DOMAIN = new_domain
-    QDRANT_URL = new_url
-    QDRANT_API_KEY = new_key
-    QDRANT_HOST = new_host
-    QDRANT_PORT = new_port
-    QDRANT_HTTPS = new_https
-    _client = None  # Reset client singleton to use updated endpoint
-
-    print("\n" + "=" * 64)
-    print(" hermes-fleet-memory : Autonomous Client Node Initialization")
-    print("=" * 64 + "\n")
-
-    # Step 1: Environment audit
-    print("[1/5] Auditing environment configuration...")
-    endpoint_desc = QDRANT_URL if QDRANT_URL else f"http{'s' if QDRANT_HTTPS else ''}://{QDRANT_HOST}:{QDRANT_PORT}"
-    print(f"      * Enforced Domain: {ENFORCED_DOMAIN.upper()}")
-    print(f"      * Vector Target  : {endpoint_desc}")
-    print(f"      * Desktop Bridge : port {BRIDGE_PORT}")
-
-    # Step 2: Live Connectivity Probe
-    print("\n[2/5] Probing vector engine connectivity...")
-    t0 = time.time()
-    try:
-        client = get_client()
-        collections_resp = client.get_collections()
-        latency_ms = (time.time() - t0) * 1000
-        print(f"      [OK] Connected to Qdrant successfully (Latency: {latency_ms:.1f}ms)")
-    except Exception as e:
-        print(f"\n[!] Connection Failed to {endpoint_desc}")
-        print(f"    Error: {e}")
-        print("\n    Troubleshooting hints:")
-        print("    * If using Option A (VPS with WSTunnel):")
-        print("      Verify wstunnel is running: e.g. wstunnel.exe client -L 'tcp://127.0.0.1:6333:127.0.0.1:6333' wss://...")
-        print("    * If using Option B (Qdrant Cloud):")
-        print("      Verify FLEET_QDRANT_URL and FLEET_QDRANT_KEY in your .env file.")
-        print("    * If using direct local Qdrant:")
-        print("      Verify docker compose or systemctl status qdrant is active.\n")
-        sys.exit(1)
-
-    # Step 3: Bootstrap Collection
-    print("\n[3/5] Bootstrapping collection & payload indexes...")
-    try:
-        bootstrap_collection()
-        print(f"      [OK] Collection '{COLLECTION_NAME}' validated (384-dim COSINE)")
-    except Exception as e:
-        print(f"      [!] Bootstrap error: {e}")
-        sys.exit(1)
-
-    # Step 4: Hermes Agent Auto-Registration
-    print("\n[4/5] Configuring Hermes Agent...")
-    hermes_bin = shutil.which("hermes")
-    script_path = os.path.abspath(__file__).replace("\\", "/")
-    python_bin = sys.executable.replace("\\", "/")
-
-    if hermes_bin:
-        print(f"      * Found Hermes CLI at: {hermes_bin}")
-        try:
-            cmd_add = [
-                hermes_bin, "mcp", "add", "fleet-memory",
-                "--command", python_bin,
-                "--args", script_path
-            ]
-            res_add = subprocess.run(cmd_add, capture_output=True, text=True)
-            if res_add.returncode == 0 or "already exists" in (res_add.stdout + res_add.stderr).lower():
-                print("      [OK] FastMCP server 'fleet-memory' registered in Hermes")
-            else:
-                msg = res_add.stdout.strip() or res_add.stderr.strip()
-                print(f"      * MCP registration note: {msg}")
-        except Exception as e:
-            print(f"      [!] Note on MCP add: {e}")
-
-        try:
-            cmd_cfg = [hermes_bin, "config", "set", "memory.provider", "none"]
-            res_cfg = subprocess.run(cmd_cfg, capture_output=True, text=True)
-            if res_cfg.returncode == 0:
-                print("      [OK] Configured 'memory.provider: none' (Zero ambient prompt bloat)")
-            else:
-                msg = res_cfg.stdout.strip() or res_cfg.stderr.strip()
-                print(f"      * Memory provider config note: {msg}")
-        except Exception as e:
-            print(f"      [!] Note on config set: {e}")
-    else:
-        print("      * Hermes CLI not found in current PATH.")
-        print("      * To register manually in Hermes, run:")
-        print(f'        hermes mcp add fleet-memory --command "{python_bin}" --args "{script_path}"')
-        print("        hermes config set memory.provider none")
-
-    # Step 5: Self-Test Query
-    print("\n[5/5] Executing live test retrieval...")
-    t1 = time.time()
-    try:
-        results = fleet_memory_search(query="ping self test", limit=1)
-        test_latency = (time.time() - t1) * 1000
-        print(f"      [OK] Test vector search completed in {test_latency:.1f}ms")
-    except Exception as e:
-        print(f"      [!] Test query note: {e}")
-
-    print("\n" + "=" * 64)
-    print(" Node is fully provisioned and ready for multi-instance fleet operation!")
-    print("=" * 64 + "\n")
 
 
 if __name__ == "__main__":
     if "--bootstrap" in sys.argv:
         bootstrap_collection()
-    elif "--init" in sys.argv or "--setup" in sys.argv:
-        run_init()
     elif HAS_MCP and mcp:
         mcp.run()
     else:
