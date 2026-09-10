@@ -1,70 +1,89 @@
 ---
 name: fleet-memory
-description: Distributed vector memory and remote workstation execution bridge for Hermes agent fleets.
-version: 1.1.0
-author: Amirul Azwan <amirulazw94@gmail.com>
+description: Use when recalling or storing architecture, hardware specs, GPU settings, payment APIs, or cross-node notes across the Hermes fleet.
+version: 1.2.0
+author: Amirul Azwan
 license: MIT
 ---
 
-# Fleet Memory & Task Plane (hermes-fleet-memory)
+# Fleet Memory & Sovereign Mesh (Paradigm E++)
 
-This skill integrates the `fleet_memory_search`, `fleet_memory_store`, and asynchronous `fleet_task_delegate` MCP tools into Hermes, providing zero-ambient-bloat distributed vector memory and verified task coordination across multiple nodes (VPS, Work PC, Personal Rig).
+Universal on-demand vector memory, domain-isolated vaults, and remote execution mesh linking Node 1 (Chester / VPS), Node 2 (Wolf / Corporate PC), and Node 3 (Winston / Personal PC).
 
-## Essential Guidance
-- **Vector Retrieval Over Shell Probes:** When asked about hardware configurations, enterprise payment architectures, or past decisions on a remote machine, **ALWAYS call `fleet_memory_search(query=...)` first**. Do not run local bash/PowerShell probes expecting remote visibility.
-- **Deterministic Slots:** When saving configurations, pass both `slot_name` and `client_id` to update records in-place without duplicate drift.
-- **Asynchronous Delegation Over SSH / Scripting:** To trigger actions on other machines (e.g. sending Telegram notifications via Chester or scheduling GPU batches on Winston), call `fleet_task_delegate(target_node=..., action=..., params=...)`. Never attempt to SSH into peer machines or execute shell scripts directly.
+## Fundamental Rule: Vector Retrieval Over Local Shell Commands
+When the user asks about:
+- Personal desktop hardware specs, RTX 3070 Ti undervolting, or thermal profiles
+- Enterprise payment gateway configurations (DOKU, SenangPay, webhooks)
+- Infrastructure baselines, Oracle Cloud VPS setups, Caddy routing, or homelab specs
+- Architectural notes, past decisions, or multi-node state
+
+**DO NOT attempt to execute local bash commands on the host to inspect a remote machine.**  
+**ALWAYS call `fleet_memory_search(query=...)` first.** The fleet vector store holds the authoritative state cards for all nodes.
+
+---
+
+## Domain Firewall Rules (Host-Environment Enforced)
+- **Node 1 (Chester - VPS):** `FLEET_HARD_DOMAIN=all`. Can query and store across all domains.
+- **Node 2 (Wolf - Work PC):** `FLEET_HARD_DOMAIN=work`. Can only query/store `work` and `shared`. Attempting to access `personal` triggers an immediate `PermissionError`.
+- **Node 3 (Winston - Rig):** `FLEET_HARD_DOMAIN=personal`. Can only query/store `personal` and `shared`. Attempting to access `work` triggers an immediate `PermissionError`.
+
+---
 
 ## Tools Reference
 
 ### 1. `fleet_memory_search`
-Search the fleet memory for facts, runbooks, or configurations:
-- `query` (string, required): The topic or inquiry.
-- `target_domain` (string, optional): "personal", "work", "shared", or "all".
+Query fleet vector memory on-demand:
+- `query` (str): Search inquiry (e.g. "RTX 3070 Ti undervolt", "DOKU webhook secret").
+- `target_domain` (optional): "personal", "work", "shared", or "all" (must match node permissions).
+- `limit` (int, default 5): Maximum cards to return.
 
 ### 2. `fleet_memory_store`
-Store or update an authoritative card:
-- `text` (string, required): Factual statement or markdown documentation.
-- `slot_name` (string, optional): Deterministic slot (e.g. `gpu_profile`, `caddy_template`).
-- `client_id` (string, optional): Subsystem tag (e.g. `desktop_hardware`, `payment_gateway`).
-- `target_domain` (string, optional): "personal", "work", or "shared".
-- `pinned` (bool, optional): Protect from 90-day episodic expiry cleaner.
+Store or update knowledge in the vector store:
+- `text` (str): Authoritative factual markdown or documentation.
+- `slot_name` (optional): **Track A Deterministic Slot** (e.g. `gpu_profile`, `vps_caddy_spec`). Generates deterministic UUID5 ID for $O(1)$ in-place overwrites. Automatically pinned.
+- `client_id` (optional): Component tag (e.g. `desktop_hardware`, `doku_gateway`).
+- `target_domain` (optional): "personal", "work", or "shared".
+- `pinned` (bool): If True, protects episodic records from the 90-day cleaner.
+- **Semantic Deduplication:** If `slot_name` is omitted (Track B episodic), the engine automatically checks for existing memories with $\ge 0.95$ cosine similarity. Near-verbatim notes refresh the existing point in-place with an incremented revision rather than bloating the index.
+- **Provenance:** Automatically tags every vector with `author_node` (`winston`, `wolf`, `chester`) and monotonic `revision`.
 
-### 3. `fleet_task_delegate` (Asynchronous Blackboard Delegation)
-Asynchronously dispatch an allowlisted task to a remote fleet peer:
-- `target_node` (string, required): "chester" (Cloud Sentinel) or "winston" (GPU Workstation).
-- `action` (string, required): "telegram_notify", "fleet_health_ping", or "gpu_batch".
-- `params` (dict, optional): Action payload, e.g. `{"message": "Deployment verified"}`.
-- `priority` (string, optional): "low", "normal", or "critical" (default: "normal").
+### 3. `desktop_status`
+Query live telemetry from the Windows 11 Personal PC (Node 3):
+- Returns real-time RTX 3070 Ti stats: temperature, utilization %, and VRAM usage.
+- If the PC is offline or bridge unreachable, gracefully informs the user and falls back to fleet memory baseline specs.
 
-### 4. `fleet_task_status` (Cryptographic Verification)
-Query execution progress and mathematically verify the Ed25519 completion receipt:
-- `task_id` (string, required): Task UUID returned by `fleet_task_delegate`.
-- `verify_receipt` (bool, optional): If true, fetches public key from `/.well-known/fleet-keys.json` and verifies the digital signature (default: true).
+### 4. `desktop_exec`
+Execute an allowlisted diagnostic action or command on the Personal PC:
+- **Preferred:** Pass `action` with a pre-declared envelope:
+  - `action="gpu_status"` (nvidia-smi telemetry)
+  - `action="git_status"` (repo status)
+  - `action="git_log"` (recent 5 commits)
+  - `action="ollama_ps"` (local LLM process status)
+  - `action="whoami"` (user verification)
+  - `action="system_uptime"` (workstation uptime)
+- **Alternative:** Pass `command` for tokenized `shell=False` execution. Only allowlisted binaries (`nvidia-smi`, `git`, `ollama`, `tasklist`, `pgrep`, `whoami`, `python`, `node`) are permitted. Arbitrary shells (`powershell`, `cmd`, `bash`) are rejected by defense policy.
 
-### 5. `desktop_status` (Option C - Fleet Mesh)
-Check if the remote workstation is online and retrieve live GPU metrics (temperature, utilization, VRAM usage).
+### 5. `desktop_read_file`
+Read an authorized file from the Personal PC:
+- `path` (str): Absolute path under user home directory (e.g. `C:/Users/dontlookie/sales-handover/notes.md`).
+- Security: Strictly jailed to allowed root; blocked from accessing credentials (`.ssh`, `.env`, `id_rsa`, `SAM`). Max 5MB.
 
-### 6. `desktop_exec` (Option C - Fleet Mesh)
-Execute a safe terminal command on the remote workstation (e.g. `nvidia-smi`, undervolt scripts).
+### 6. `fleet_task_delegate`
+Asynchronously dispatch a background task to another node:
+- `target_node`: `"chester"` (VPS) or `"winston"` (Rig).
+- `action`: `"telegram_notify"`, `"fleet_health_ping"`, or `"gpu_batch"`.
+- `params`: Parameters dictionary (e.g. `{"message": "Alert from Wolf"}`).
 
-### 7. `desktop_read_file` (Option C - Fleet Mesh)
-Read an authorized file from the remote workstation under the user directory.
+### 7. `fleet_task_status`
+Check execution state and verify **Ed25519 cryptographic completion receipts**:
+- `task_id` (str): Returned from `fleet_task_delegate`.
+- `verify_receipt` (bool, default True): Verifies digital signature against the fleet JWKS endpoint.
 
-### 8. `desktop_power` (Option C - Fleet Mesh)
-Gracefully manage the remote workstation's power state from your cloud daemon:
-- `action` (string, default "shutdown"): "shutdown", "restart", or "cancel".
-- `delay_seconds` (int, default 60): Grace buffer before execution (allows cancellation).
+---
 
-## Multi-Agent Persona Synchronization Pattern
-When running different personas across fleet nodes (e.g. a desktop butler agent on Node 3 and a cloud hub on Node 1), prevent identity fragmentation by committing a shared persona slot:
-```python
-fleet_memory_store(
-    text="Fleet Agents:\n- Node 3 (Desktop): Winston (Personal butler & GPU aide-de-camp)\n- Node 1 (VPS): Hermes (Cloud hub & Telegram gateway)\n- Node 2 (Laptop): Work Agent (Enterprise solutions)",
-    slot_name="fleet_personas",
-    client_id="fleet_identity",
-    target_domain="shared",
-    pinned=True
-)
+## Local Terminal CLI (`fleet`)
+To quickly inspect live fleet vitals from any terminal on Node 3:
+```bash
+fleet          # Render high-density ASCII bento telemetry dashboard
+fleet raw      # Output raw JSON payload
 ```
-Every agent across the mesh can now query `fleet_memory_search(query="who is Winston?")` and resolve peer identities instantly.

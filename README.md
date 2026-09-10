@@ -291,19 +291,26 @@ For detailed threat boundary analysis, see [SECURITY.md](SECURITY.md).
 [ Ingress TLS / Port 443 ] ──► [ Caddy Token Gate ] ──► [ Loopback Jail :8099 ] ──► [ Constant-Time HMAC ] ──► [ Sandboxed Shell ]
 ```
 
-### Automated Negative Security & Concurrency Tests
+### Automated Negative Security, Deduplication & Concurrency Tests
 
-The repository includes a comprehensive `pytest` test suite asserting zero cross-domain leakage, deterministic UUID5 overwrites, and bridge defense mechanisms:
+The repository includes a comprehensive 22-test automated unit suite in `tests/` asserting zero cross-domain leakage, deterministic UUID5 overwrites, Last-Write-Wins timestamps, semantic deduplication, and RCE-free bridge execution:
 
 ```bash
-pytest tests/ -v
+uv run --with pytest --with pydantic pytest tests/ -v
 ```
 
 ```text
 tests/test_bridge_security.py::test_constant_time_hmac_auth PASSED
-tests/test_bridge_security.py::test_command_blacklist_catches_destructive_commands PASSED
+tests/test_bridge_security.py::test_command_allowlist_rejects_unauthorized_binaries PASSED
+tests/test_bridge_security.py::test_command_allowlist_accepts_authorized_binaries PASSED
+tests/test_bridge_security.py::test_command_allowlist_rejects_dangerous_arguments PASSED
+tests/test_bridge_security.py::test_predeclared_actions PASSED
 tests/test_bridge_security.py::test_path_jail_blocks_traversal PASSED
 tests/test_bridge_security.py::test_blocked_file_substrings PASSED
+tests/test_cleaner.py::test_archive_points PASSED
+tests/test_cleaner.py::test_clean_expired_memories_performs_hard_deletion PASSED
+tests/test_dedup.py::test_provenance_attribution PASSED
+tests/test_dedup.py::test_semantic_dedup_updates_existing_point PASSED
 tests/test_domain_isolation.py::test_personal_node_allowed_domains PASSED
 tests/test_domain_isolation.py::test_personal_node_denied_work_query PASSED
 tests/test_domain_isolation.py::test_personal_node_denied_all_query PASSED
@@ -315,6 +322,33 @@ tests/test_domain_isolation.py::test_cloud_sentinel_all_access PASSED
 tests/test_lww_concurrency.py::test_uuid5_deterministic_slot_generation PASSED
 tests/test_lww_concurrency.py::test_lww_monotonic_revision_increment PASSED
 tests/test_lww_concurrency.py::test_lww_rejects_stale_concurrent_write PASSED
+
+============================= 22 passed in 0.10s ==============================
+```
+
+---
+
+## Native Terminal Telemetry CLI (`fleet`)
+
+To monitor live fleet vitals from any terminal without opening a browser:
+
+```bash
+# High-density ASCII bento layout
+fleet
+
+# Raw JSON output for script pipelines
+fleet raw
+```
+
+```text
+┌────┬────────────┬─────────────────────────────┬──────────────┬───────────────────────────┐
+│ ID │ NODE       │ ROLE                        │ DOMAIN LOCK  │ STATUS / VITALS           │
+├────┼────────────┼─────────────────────────────┼──────────────┼───────────────────────────┤
+│ node1 │ Chester    │ 24/7 Cloud Sentinel & Teleg │ all          │ ONLINE Idle < 2% (Hub)    │
+│ node2 │ Wolf       │ Enterprise Presales AI Solu │ work         │ ONLINE Zscaler (~18ms)    │
+│ node3 │ Winston    │ Personal Butler & GPU Works │ personal     │ ONLINE RTX 3070 Ti (:8099)│
+└────┴────────────┴─────────────────────────────┴──────────────┴───────────────────────────┘
+ FastMCP Stdio: Synchronized  │  LWW Concurrency: Active  │  INT8 Quant: Enabled
 ```
 
 ---
