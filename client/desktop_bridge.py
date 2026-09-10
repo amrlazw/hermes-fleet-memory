@@ -76,7 +76,8 @@ ALLOWED_ACTIONS = {
     "ollama_ps": ["ollama", "ps"],
     "wstunnel_status": ["tasklist", "/FI", "IMAGENAME eq wstunnel.exe"] if sys.platform == "win32" else ["pgrep", "-l", "wstunnel"],
     "whoami": ["whoami"],
-    "system_uptime": ["net", "statistics", "workstation"] if sys.platform == "win32" else ["uptime"]
+    "system_uptime": ["net", "statistics", "workstation"] if sys.platform == "win32" else ["uptime"],
+    "threads_publish": ["python", "C:/Users/dontlookie/AppData/Local/hermes/bin/post_fleet_synapse_update.py", "--submit"]
 }
 
 # Parameterized argument blacklist
