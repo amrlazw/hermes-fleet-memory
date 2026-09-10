@@ -83,6 +83,7 @@ QDRANT_URL = os.getenv("FLEET_QDRANT_URL", None)
 BRIDGE_PORT = int(os.getenv("FLEET_BRIDGE_PORT", "8099"))
 FLEET_TASKS_URL = os.getenv("FLEET_TASKS_URL", "https://fleet.republikus.my").rstrip("/")
 FLEET_KEY = os.getenv("FLEET_QDRANT_KEY", os.getenv("FLEET_CLUSTER_SECRET", ""))
+FLEET_BRIDGE_KEY = os.getenv("FLEET_BRIDGE_KEY") or os.getenv("FLEET_QDRANT_KEY") or os.getenv("FLEET_CLUSTER_SECRET", "")
 
 # Global singletons
 _client = None
@@ -109,7 +110,9 @@ def get_embedder():
     global _embedder
     if _embedder is None:
         # BAAI/bge-small-en-v1.5 produces 384-dim normalized embeddings with FP32 precision
-        _embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+        # Limit worker threads to prevent saturating edge / ARM CPU cores
+        threads = int(os.getenv("FASTEMBED_THREADS", "2"))
+        _embedder = TextEmbedding(model_name="BAAI/bge-small-en-v1.5", threads=threads)
     return _embedder
 
 
@@ -197,16 +200,17 @@ def fleet_memory_search(
 
         query_filter = models.Filter(must=must_conditions)
 
-        # Hybrid client query compatibility
+        # Hybrid client query compatibility (qdrant-client v1.10+ query_points vs legacy search)
         try:
-            results = client.query_points(
+            raw_res = client.query_points(
                 collection_name=COLLECTION_NAME,
                 query=vector,
                 query_filter=query_filter,
                 limit=limit,
                 with_payload=True
-            ).points
-        except AttributeError:
+            )
+            results = getattr(raw_res, "points", raw_res)
+        except Exception:
             results = client.search(
                 collection_name=COLLECTION_NAME,
                 query_vector=vector,
@@ -398,18 +402,23 @@ if HAS_MCP and mcp:
 
     @mcp.tool(
         name="desktop_exec",
-        description="Execute a safe terminal command remotely on the target workstation."
+        description="Execute a safe allowlisted terminal command or action remotely on the target workstation."
     )
-    def desktop_exec(command: str) -> Dict[str, Any]:
-        """Execute a safe shell command on the workstation."""
+    def desktop_exec(command: str = "", action: str = "") -> Dict[str, Any]:
+        """Execute a safe command or pre-declared action on the workstation."""
         import json, urllib.request, urllib.error
         try:
-            data = json.dumps({"command": command}).encode("utf-8")
+            payload = {}
+            if action:
+                payload["action"] = action
+            if command:
+                payload["command"] = command
+            data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
                 f"http://127.0.0.1:{BRIDGE_PORT}/exec",
                 data=data,
                 headers={
-                    "Authorization": f"Bearer {QDRANT_API_KEY}",
+                    "Authorization": f"Bearer {FLEET_BRIDGE_KEY}",
                     "Content-Type": "application/json"
                 }
             )
@@ -436,7 +445,7 @@ if HAS_MCP and mcp:
                 f"http://127.0.0.1:{BRIDGE_PORT}/read_file",
                 data=data,
                 headers={
-                    "Authorization": f"Bearer {QDRANT_API_KEY}",
+                    "Authorization": f"Bearer {FLEET_BRIDGE_KEY}",
                     "Content-Type": "application/json"
                 }
             )

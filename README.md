@@ -121,8 +121,8 @@ Developers operating multiple instances of [Hermes Agent](https://github.com/Nou
 
 1. **Zero Ambient Prompt Overhead (`memory.provider: none`):**  
    Memories reside in a central 384-dimensional vector database. Retrieval occurs strictly **on-demand** via FastMCP tool calls (`fleet_memory_search`). Zero tokens are wasted on conversational turns where memory is irrelevant.
-2. **Hardware-Enforced 3-Domain Firewall:**  
-   Data is partitioned into `work`, `personal`, and `shared` vaults. Isolation is enforced at the client environment level (`FLEET_HARD_DOMAIN`), not left to probabilistic LLM prompt compliance.
+2. **Host-Environment Enforced 3-Domain Firewall:**  
+   Data is partitioned into `work`, `personal`, and `shared` vaults. Isolation is enforced at the host environment level (`FLEET_HARD_DOMAIN`), rejecting unauthorized cross-domain access before any network request is transmitted.
 3. **Deterministic Slot Invalidation (UUID5):**  
    Updating a configuration slot (e.g. `client_id="hardware"`, `slot_name="gpu_profile"`) generates an ID using `UUID5(DNS, f"{domain}:{client_id}:{slot_name}")`. Updates replace existing records in-place. Conflicting duplicate memories cannot accumulate.
 

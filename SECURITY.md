@@ -21,10 +21,11 @@ Unlike naive agent memory systems that rely on probabilistic system-prompt compl
 
 | Attack Vector | Threat Scenario | Defense Mechanism | Test Verification |
 | :--- | :--- | :--- | :--- |
-| **Cross-Domain Memory Exfiltration** | Prompt injection tricks an agent on a Personal PC into querying enterprise financial secrets. | Client-level domain firewall (`validate_domain_access`) rejects queries outside `{FLEET_HARD_DOMAIN, 'shared'}` with `PermissionError`. | `tests/test_domain_isolation.py` |
+| **Cross-Domain Memory Exfiltration** | Prompt injection tricks an agent on a Personal PC into querying enterprise financial secrets. | Host-environment domain firewall (`validate_domain_access`) rejects queries outside `{FLEET_HARD_DOMAIN, 'shared'}` with `PermissionError`. | `tests/test_domain_isolation.py` |
 | **Concurrent Memory Corruption (Split-Brain)** | Disconnected node comes online and flushes stale cached updates over newer facts. | Timestamped **Last-Write-Wins (LWW)** and monotonic revision tracking rejects out-of-order writes. | `tests/test_lww_concurrency.py` |
 | **Arbitrary File Traversal via MCP** | Remote agent requests `desktop_read_file(path="../../etc/shadow")` or `C:\Windows\System32\config\SAM`. | Strict path jailing via `Path.resolve().is_relative_to(ALLOWED_ROOT)` plus sensitive substring blocklist (`.ssh`, `.env`, `id_rsa`). | `tests/test_bridge_security.py` |
-| **Remote Code Execution (RCE) via Desktop Bridge** | Adversary attempts to format drives or establish persistent backdoors via `desktop_exec`. | Constant-time HMAC authentication (`X-Fleet-Key`), loopback binding (`127.0.0.1`), and regex blacklist (`format`, `diskpart`, `rmdir /s`, `rm -rf`). | `tests/test_bridge_security.py` |
+| **Remote Code Execution (RCE) via Desktop Bridge** | Adversary attempts to format drives, run powershell -enc, or establish backdoors via `desktop_exec`. | Parameterized command allowlist with `shell=False` execution (no subshells or chaining), decoupled `FLEET_BRIDGE_KEY`, and loopback binding. | `tests/test_bridge_security.py` |
+| **HNSW RAM Graph Bloat via Tombstones** | Ephemeral or expired episodic memories consume RAM indefinitely in Qdrant. | `server/cleaner.py` dumps points to an offline JSONL audit file, then physically evicts them via `client.delete()`. | `tests/test_cleaner.py` |
 | **Denial of Service (DoS) via Payload Flooding** | Attacker floods the bridge with gigabyte-sized JSON payloads. | Hard payload cap of 1MB enforced at HTTP handler entry. Payloads exceeding cap return `HTTP 413`. | `tests/test_bridge_security.py` |
 
 ---
@@ -52,9 +53,10 @@ For operators deploying **Option C (Full Fleet Mesh & Remote Bridge)**:
                            │
                            ▼
 ┌────────────────────────────────────────────────────────┐
-│ RING 3: Constant-Time HMAC Bearer Authentication       │
-│ • Authorization header validated with constant-time    │
-│   hmac.compare_digest to eliminate timing attacks      │
+│ RING 3: Decoupled Constant-Time HMAC Authentication    │
+│ • Authorization header validated against dedicated    │
+│   FLEET_BRIDGE_KEY (independent of vector DB keys)    │
+│ • Validated with hmac.compare_digest for zero-leakage │
 └──────────────────────────┬─────────────────────────────┘
                            │
                            ▼
@@ -66,8 +68,10 @@ For operators deploying **Option C (Full Fleet Mesh & Remote Bridge)**:
                            │
                            ▼
 ┌────────────────────────────────────────────────────────┐
-│ RING 5: Sandboxed Shell Execution Policy               │
-│ • Destructive regex patterns dropped with HTTP 403     │
+│ RING 5: Parameterized Binary Allowlist (shell=False)   │
+│ • Rejects open shell execution; strictly allows vetted │
+│   binaries (nvidia-smi, git, ollama, whoami)           │
+│ • Structured token array execution prevents subshells  │
 │ • Enforces 30-second hard execution timeouts           │
 └────────────────────────────────────────────────────────┘
 ```

