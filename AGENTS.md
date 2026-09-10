@@ -239,6 +239,14 @@ Allowlisted actions only:
 9. **CPU Pinning Is Opt-In.**
    `CPUAffinity` ships commented out in the service templates. Enable it only when the host also runs latency-sensitive inference — pinning a normal laptop or desktop to one core is a performance regression.
 
+10. **NEVER Store Credentials in Shared Vector Memory.**
+    A credential written to a memory card is a credential published wherever that card is readable. This is not hypothetical: the coordination feed was world-readable and plaintext keys were found in it.
+    * Store a **pointer** to the secret's location (`see ~/.hermes/.env`), never the value.
+    * Never write a credential into a card, a task payload, a slot, or a runbook entry.
+    * If a secret was ever written to memory, treat it as disclosed: **rotate it**, then redact the card.
+    * Prefer loading secrets from a `0600` env file (`EnvironmentFile=`) over inline `Environment=` lines — `systemctl cat` is world-readable.
+    * Ship no credential defaults in source. Fail to start instead.
+
 ---
 
 ## 🛠️ Troubleshooting & Recovery Cheatsheet
