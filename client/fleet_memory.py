@@ -278,6 +278,7 @@ def fleet_memory_store(
 
     now = timestamp if timestamp is not None else time.time()
     revision = 1
+    dedup_mode = "episodic_append"
 
     # Deterministic slot overwrite using UUID5 with Last-Write-Wins (LWW) check
     if slot_name and client_id:
@@ -312,8 +313,53 @@ def fleet_memory_store(
             # Fall open for test environments or new collections
             pass
     else:
-        point_id = str(uuid.uuid4())
         is_pinned = pinned
+        point_id = None
+        # Semantic Near-Duplicate Invalidation (Cosine Similarity >= 0.95 within same domain)
+        try:
+            client = get_client()
+            embedder = get_embedder()
+            raw_vec = list(embedder.embed([text]))[0]
+            vector = raw_vec.tolist() if hasattr(raw_vec, "tolist") else list(raw_vec)
+
+            near_dup_filter = models.Filter(
+                must=[
+                    models.FieldCondition(key="domain", match=models.MatchValue(value=effective_domain)),
+                    models.FieldCondition(key="status", match=models.MatchValue(value="active")),
+                    models.FieldCondition(key="memory_type", match=models.MatchValue(value="episodic"))
+                ]
+            )
+            try:
+                probe = client.query_points(
+                    collection_name=COLLECTION_NAME,
+                    query=vector,
+                    query_filter=near_dup_filter,
+                    limit=1,
+                    score_threshold=0.95,
+                    with_payload=True
+                )
+                matches = getattr(probe, "points", probe)
+            except Exception:
+                matches = client.search(
+                    collection_name=COLLECTION_NAME,
+                    query_vector=vector,
+                    query_filter=near_dup_filter,
+                    limit=1,
+                    score_threshold=0.95,
+                    with_payload=True
+                )
+
+            if matches and len(matches) > 0:
+                top_match = matches[0]
+                point_id = str(top_match.id)
+                top_payload = top_match.payload or {}
+                revision = int(top_payload.get("revision", 1)) + 1
+                dedup_mode = "semantic_dedup_update"
+        except Exception:
+            pass
+
+        if not point_id:
+            point_id = str(uuid.uuid4())
 
     try:
         client = get_client()
@@ -321,14 +367,19 @@ def fleet_memory_store(
         raw_vec = list(embedder.embed([text]))[0]
         vector = raw_vec.tolist() if hasattr(raw_vec, "tolist") else list(raw_vec)
 
+        node_name = os.getenv("FLEET_NODE_NAME") or os.getenv("HERMES_PROFILE") or ("winston" if sys.platform == "win32" else "chester")
+
         payload = {
             "text": text,
             "domain": effective_domain,
             "client_id": client_id or "generic",
             "slot_name": slot_name or "episodic",
+            "memory_type": "slot" if (slot_name and client_id) else "episodic",
             "status": "active",
             "pinned": is_pinned,
             "revision": revision,
+            "author_node": node_name,
+            "author_profile": os.getenv("HERMES_PROFILE", "default"),
             "created_at": int(now),
             "updated_at": float(now),
             "expires_at": 0 if is_pinned else int(now + (90 * 86400))
@@ -349,9 +400,10 @@ def fleet_memory_store(
             "status": "success",
             "id": point_id,
             "domain": effective_domain,
-            "mode": "in_place_overwrite" if (slot_name and client_id) else "episodic_append",
+            "mode": "in_place_overwrite" if (slot_name and client_id) else dedup_mode,
             "pinned": is_pinned,
-            "revision": revision
+            "revision": revision,
+            "author_node": node_name
         }
     except PermissionError:
         raise

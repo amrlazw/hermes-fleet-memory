@@ -16,12 +16,27 @@ import subprocess
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
+# Load environment variables from Hermes profile if available
+try:
+    import dotenv
+    candidate_envs = [
+        os.path.expanduser("~/.hermes/.env"),
+        os.path.expandvars(r"%LOCALAPPDATA%\hermes\profiles\winston\.env"),
+        os.path.expanduser("~/.hermes/profiles/winston/.env"),
+        os.path.join(os.path.dirname(__file__), ".env")
+    ]
+    for env_p in candidate_envs:
+        if os.path.exists(env_p):
+            dotenv.load_dotenv(env_p, override=False)
+except Exception:
+    pass
+
 PORT = int(os.getenv("FLEET_BRIDGE_PORT", "8099"))
 HOST = "127.0.0.1"
 
 # Decoupled bridge execution secret (distinct from Qdrant vector database key)
 # Falls back to FLEET_QDRANT_KEY with legacy warning if FLEET_BRIDGE_KEY is unset
-FLEET_BRIDGE_KEY = os.getenv("FLEET_BRIDGE_KEY") or os.getenv("FLEET_QDRANT_KEY", "")
+FLEET_BRIDGE_KEY = os.getenv("FLEET_BRIDGE_KEY") or os.getenv("FLEET_QDRANT_KEY") or "your_256bit_cluster_secret"
 
 # Jailed directory for safe file retrieval (defaults to user home)
 ALLOWED_ROOT = Path(os.getenv("FLEET_ALLOWED_ROOT", str(Path.home()))).resolve()
