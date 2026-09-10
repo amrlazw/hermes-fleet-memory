@@ -60,25 +60,20 @@ Inspect your current host OS and shell, then state your plan and ask your user 2
    ```
 3. Populate `.env` from `client/.env.example` with the chosen endpoint and domain.
 
-### Step 3: Phase 1 — Engine Bootstrap
-1. If Option B (Qdrant Cloud): Verify connectivity via `curl -s -H "api-key: $KEY" $URL/readyz`.
-2. If Option A (VPS): Launch `server/docker-compose.yml` or native systemd units.
-3. Bootstrap collection and payload indexes:
-   ```bash
-   python client/fleet_memory.py --bootstrap
-   ```
+### Step 3: Phase 1 & 2 — Autonomous Client Initialization (One-Click)
+Run the automated initialization command:
+```bash
+python client/fleet_memory.py --init
+```
+This single command automatically:
+1. Audits environment configuration and domain isolation (`FLEET_HARD_DOMAIN`).
+2. Probes Qdrant vector engine connectivity and round-trip latency.
+3. Bootstraps collection `hermes_fleet_memory` and keyword payload indexes.
+4. Auto-registers the FastMCP server in Hermes Agent (`hermes mcp add`).
+5. Configures `memory.provider: none` (Zero ambient prompt bloat).
+6. Executes a live self-test vector query to verify end-to-end operation.
 
-### Step 4: Phase 2 — Hermes Agent Registration
-1. Register FastMCP stdio server:
-   ```bash
-   hermes mcp add fleet-memory --command python --args "<ABSOLUTE_PATH>/client/fleet_memory.py"
-   ```
-2. Verify discovery via `hermes mcp test fleet-memory`.
-3. Eliminate ambient token bloat:
-   ```bash
-   hermes config set memory.provider none
-   ```
-4. Deliver a concise ledger of verified tools and test vector latency to your user.
+*(Manual fallback: `python client/fleet_memory.py --bootstrap` then `hermes mcp add fleet-memory ...`)*
 <!-- ============================================================================== -->
 <!-- END AGENT RUNBOOK CONTRACT -->
 <!-- ============================================================================== -->
@@ -219,16 +214,11 @@ FLEET_QDRANT_KEY=your_cluster_secret_or_cloud_key
 FLEET_QDRANT_HTTPS=false
 ```
 
-### 3. Bootstrap Vector Collection (Once)
+### 3. Initialize & Register Node (One-Click)
 ```bash
-python client/fleet_memory.py --bootstrap
+python client/fleet_memory.py --init
 ```
-
-### 4. Register in Hermes
-```bash
-hermes mcp add fleet-memory --command python --args "/path/to/client/fleet_memory.py"
-hermes config set memory.provider none
-```
+This automatically verifies endpoint connectivity, creates collection payload indexes, registers `fleet-memory` in Hermes, and disables ambient prompt injection (`memory.provider: none`).
 
 Verify discovery:
 ```bash

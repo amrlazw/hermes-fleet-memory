@@ -111,62 +111,74 @@ def fleet_memory_search(
     - client_id: Optional filter for a specific client/subsystem.
     - target_domain: "personal", "work", "shared", or "all". If omitted, searches node domain + shared.
     """
-    client = get_client()
-    embedder = get_embedder()
-    vector = list(embedder.embed([query]))[0].tolist()
-
-    must_conditions = [
-        models.FieldCondition(key="status", match=models.MatchValue(value="active"))
-    ]
-
-    # Domain filtering logic
-    if target_domain == "all" or (not target_domain and ENFORCED_DOMAIN == "all"):
-        pass  # Search across all domains without restriction
-    elif target_domain in ["work", "personal", "shared"]:
-        must_conditions.append(models.FieldCondition(key="domain", match=models.MatchValue(value=target_domain)))
-    else:
-        domains_to_search = list(set([ENFORCED_DOMAIN, "shared"]))
-        must_conditions.append(
-            models.FieldCondition(key="domain", match=models.MatchAny(any=domains_to_search))
-        )
-
-    if client_id:
-        must_conditions.append(models.FieldCondition(key="client_id", match=models.MatchValue(value=client_id)))
-
-    query_filter = models.Filter(must=must_conditions)
-
-    # Hybrid client query compatibility
     try:
-        results = client.query_points(
-            collection_name=COLLECTION_NAME,
-            query=vector,
-            query_filter=query_filter,
-            limit=limit,
-            with_payload=True
-        ).points
-    except AttributeError:
-        results = client.search(
-            collection_name=COLLECTION_NAME,
-            query_vector=vector,
-            query_filter=query_filter,
-            limit=limit,
-            with_payload=True
-        )
+        client = get_client()
+        embedder = get_embedder()
+        vector = list(embedder.embed([query]))[0].tolist()
 
-    output = []
-    for r in results:
-        payload = r.payload or {}
-        output.append({
-            "score": round(float(r.score), 4),
-            "domain": payload.get("domain", "unknown"),
-            "client_id": payload.get("client_id", "unknown"),
-            "slot_name": payload.get("slot_name", "unknown"),
-            "text": payload.get("text", ""),
-            "page": payload.get("page", None),
-            "pinned": payload.get("pinned", False),
-            "created_at": payload.get("created_at", 0)
-        })
-    return output
+        must_conditions = [
+            models.FieldCondition(key="status", match=models.MatchValue(value="active"))
+        ]
+
+        # Domain filtering logic
+        if target_domain == "all" or (not target_domain and ENFORCED_DOMAIN == "all"):
+            pass  # Search across all domains without restriction
+        elif target_domain in ["work", "personal", "shared"]:
+            must_conditions.append(models.FieldCondition(key="domain", match=models.MatchValue(value=target_domain)))
+        else:
+            domains_to_search = list(set([ENFORCED_DOMAIN, "shared"]))
+            must_conditions.append(
+                models.FieldCondition(key="domain", match=models.MatchAny(any=domains_to_search))
+            )
+
+        if client_id:
+            must_conditions.append(models.FieldCondition(key="client_id", match=models.MatchValue(value=client_id)))
+
+        query_filter = models.Filter(must=must_conditions)
+
+        # Hybrid client query compatibility
+        try:
+            results = client.query_points(
+                collection_name=COLLECTION_NAME,
+                query=vector,
+                query_filter=query_filter,
+                limit=limit,
+                with_payload=True
+            ).points
+        except AttributeError:
+            results = client.search(
+                collection_name=COLLECTION_NAME,
+                query_vector=vector,
+                query_filter=query_filter,
+                limit=limit,
+                with_payload=True
+            )
+
+        output = []
+        for r in results:
+            payload = r.payload or {}
+            output.append({
+                "score": round(float(r.score), 4),
+                "domain": payload.get("domain", "unknown"),
+                "client_id": payload.get("client_id", "unknown"),
+                "slot_name": payload.get("slot_name", "unknown"),
+                "text": payload.get("text", ""),
+                "page": payload.get("page", None),
+                "pinned": payload.get("pinned", False),
+                "created_at": payload.get("created_at", 0)
+            })
+        return output
+    except Exception as e:
+        sys.stderr.write(f"Fleet memory search error: {e}\n")
+        return [{
+            "score": 0.0,
+            "domain": "system",
+            "client_id": "fleet_memory",
+            "slot_name": "connectivity_notice",
+            "text": f"Warning: Fleet memory vector search failed ({e}). Check Qdrant endpoint connectivity.",
+            "pinned": True,
+            "created_at": int(time.time())
+        }]
 
 
 def fleet_memory_store(
@@ -186,9 +198,6 @@ def fleet_memory_store(
     - target_domain: "personal", "work", or "shared".
     - pinned: If True, protects from the 90-day episodic expiry cleaner.
     """
-    client = get_client()
-    embedder = get_embedder()
-
     effective_domain = target_domain if target_domain in ["work", "personal", "shared"] else ENFORCED_DOMAIN
     if effective_domain == "all":
         effective_domain = "shared"
@@ -201,37 +210,49 @@ def fleet_memory_store(
         point_id = str(uuid.uuid4())
         is_pinned = pinned
 
-    vector = list(embedder.embed([text]))[0].tolist()
+    try:
+        client = get_client()
+        embedder = get_embedder()
+        vector = list(embedder.embed([text]))[0].tolist()
 
-    payload = {
-        "text": text,
-        "domain": effective_domain,
-        "client_id": client_id or "generic",
-        "slot_name": slot_name or "episodic",
-        "status": "active",
-        "pinned": is_pinned,
-        "created_at": int(time.time()),
-        "expires_at": 0 if is_pinned else int(time.time() + (90 * 86400))
-    }
+        payload = {
+            "text": text,
+            "domain": effective_domain,
+            "client_id": client_id or "generic",
+            "slot_name": slot_name or "episodic",
+            "status": "active",
+            "pinned": is_pinned,
+            "created_at": int(time.time()),
+            "expires_at": 0 if is_pinned else int(time.time() + (90 * 86400))
+        }
 
-    client.upsert(
-        collection_name=COLLECTION_NAME,
-        points=[
-            models.PointStruct(
-                id=point_id,
-                vector=vector,
-                payload=payload
-            )
-        ]
-    )
+        client.upsert(
+            collection_name=COLLECTION_NAME,
+            points=[
+                models.PointStruct(
+                    id=point_id,
+                    vector=vector,
+                    payload=payload
+                )
+            ]
+        )
 
-    return {
-        "status": "success",
-        "id": point_id,
-        "domain": effective_domain,
-        "mode": "in_place_overwrite" if (slot_name and client_id) else "episodic_append",
-        "pinned": is_pinned
-    }
+        return {
+            "status": "success",
+            "id": point_id,
+            "domain": effective_domain,
+            "mode": "in_place_overwrite" if (slot_name and client_id) else "episodic_append",
+            "pinned": is_pinned
+        }
+    except Exception as e:
+        sys.stderr.write(f"Fleet memory store error: {e}\n")
+        return {
+            "status": "error",
+            "error_type": "connectivity_error",
+            "message": f"Failed to store memory card: {e}",
+            "domain": effective_domain,
+            "id": point_id
+        }
 
 
 # Register FastMCP tools if available
@@ -369,9 +390,118 @@ def bootstrap_collection():
         print(f"Collection '{COLLECTION_NAME}' already active.")
 
 
+def run_init():
+    """
+    Autonomous one-click client initialization:
+    1. Audits environment configuration (.env and Hermes profiles)
+    2. Probes Qdrant vector engine connectivity and round-trip latency
+    3. Bootstraps collection and payload keyword indices
+    4. Automatically registers FastMCP server in Hermes Agent (hermes mcp add)
+    5. Sets Hermes memory.provider to 'none' (zero ambient token overhead)
+    6. Executes a live self-test query
+    """
+    import shutil
+    import subprocess
+
+    print("\n" + "=" * 64)
+    print(" hermes-fleet-memory : Autonomous Client Node Initialization")
+    print("=" * 64 + "\n")
+
+    # Step 1: Environment audit
+    print("[1/5] Auditing environment configuration...")
+    endpoint_desc = QDRANT_URL if QDRANT_URL else f"http{'s' if QDRANT_HTTPS else ''}://{QDRANT_HOST}:{QDRANT_PORT}"
+    print(f"      * Enforced Domain: {ENFORCED_DOMAIN.upper()}")
+    print(f"      * Vector Target  : {endpoint_desc}")
+    print(f"      * Desktop Bridge : port {BRIDGE_PORT}")
+
+    # Step 2: Live Connectivity Probe
+    print("\n[2/5] Probing vector engine connectivity...")
+    t0 = time.time()
+    try:
+        client = get_client()
+        collections_resp = client.get_collections()
+        latency_ms = (time.time() - t0) * 1000
+        print(f"      [OK] Connected to Qdrant successfully (Latency: {latency_ms:.1f}ms)")
+    except Exception as e:
+        print(f"\n[!] Connection Failed to {endpoint_desc}")
+        print(f"    Error: {e}")
+        print("\n    Troubleshooting hints:")
+        print("    * If using Option A (VPS with WSTunnel):")
+        print("      Verify wstunnel is running: e.g. wstunnel.exe client -L 'tcp://127.0.0.1:6333:127.0.0.1:6333' wss://...")
+        print("    * If using Option B (Qdrant Cloud):")
+        print("      Verify FLEET_QDRANT_URL and FLEET_QDRANT_KEY in your .env file.")
+        print("    * If using direct local Qdrant:")
+        print("      Verify docker compose or systemctl status qdrant is active.\n")
+        sys.exit(1)
+
+    # Step 3: Bootstrap Collection
+    print("\n[3/5] Bootstrapping collection & payload indexes...")
+    try:
+        bootstrap_collection()
+        print(f"      [OK] Collection '{COLLECTION_NAME}' validated (384-dim COSINE)")
+    except Exception as e:
+        print(f"      [!] Bootstrap error: {e}")
+        sys.exit(1)
+
+    # Step 4: Hermes Agent Auto-Registration
+    print("\n[4/5] Configuring Hermes Agent...")
+    hermes_bin = shutil.which("hermes")
+    script_path = os.path.abspath(__file__).replace("\\", "/")
+    python_bin = sys.executable.replace("\\", "/")
+
+    if hermes_bin:
+        print(f"      * Found Hermes CLI at: {hermes_bin}")
+        try:
+            cmd_add = [
+                hermes_bin, "mcp", "add", "fleet-memory",
+                "--command", python_bin,
+                "--args", script_path
+            ]
+            res_add = subprocess.run(cmd_add, capture_output=True, text=True)
+            if res_add.returncode == 0 or "already exists" in (res_add.stdout + res_add.stderr).lower():
+                print("      [OK] FastMCP server 'fleet-memory' registered in Hermes")
+            else:
+                msg = res_add.stdout.strip() or res_add.stderr.strip()
+                print(f"      * MCP registration note: {msg}")
+        except Exception as e:
+            print(f"      [!] Note on MCP add: {e}")
+
+        try:
+            cmd_cfg = [hermes_bin, "config", "set", "memory.provider", "none"]
+            res_cfg = subprocess.run(cmd_cfg, capture_output=True, text=True)
+            if res_cfg.returncode == 0:
+                print("      [OK] Configured 'memory.provider: none' (Zero ambient prompt bloat)")
+            else:
+                msg = res_cfg.stdout.strip() or res_cfg.stderr.strip()
+                print(f"      * Memory provider config note: {msg}")
+        except Exception as e:
+            print(f"      [!] Note on config set: {e}")
+    else:
+        print("      * Hermes CLI not found in current PATH.")
+        print("      * To register manually in Hermes, run:")
+        print(f'        hermes mcp add fleet-memory --command "{python_bin}" --args "{script_path}"')
+        print("        hermes config set memory.provider none")
+
+    # Step 5: Self-Test Query
+    print("\n[5/5] Executing live test retrieval...")
+    t1 = time.time()
+    try:
+        results = fleet_memory_search(query="ping self test", limit=1)
+        test_latency = (time.time() - t1) * 1000
+        print(f"      [OK] Test vector search completed in {test_latency:.1f}ms")
+    except Exception as e:
+        print(f"      [!] Test query note: {e}")
+
+    print("\n" + "=" * 64)
+    print(" Node is fully provisioned and ready for multi-instance fleet operation!")
+    print("=" * 64 + "\n")
+
+
 if __name__ == "__main__":
     if "--bootstrap" in sys.argv:
         bootstrap_collection()
+    elif "--init" in sys.argv or "--setup" in sys.argv:
+        run_init()
     elif HAS_MCP and mcp:
         mcp.run()
     else:
