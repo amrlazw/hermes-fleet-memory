@@ -56,12 +56,12 @@ except ImportError as e:
 # Initialize FastMCP (supports both mcp 2.x MCPServer and mcp 1.x FastMCP)
 try:
     from mcp.server.mcpserver import MCPServer as FastMCP
-    mcp = FastMCP("fleet-memory")
+    mcp = FastMCP("fleet-synapse")
     HAS_MCP = True
 except ImportError:
     try:
         from mcp.server.fastmcp import FastMCP
-        mcp = FastMCP("fleet-memory")
+        mcp = FastMCP("fleet-synapse")
         HAS_MCP = True
     except ImportError:
         HAS_MCP = False
@@ -420,14 +420,25 @@ def fleet_memory_store(
 
 # Register FastMCP tools if available
 if HAS_MCP and mcp:
-    fleet_memory_search = mcp.tool(
-        name="fleet_memory_search",
-        description="Search fleet memory on-demand. Query domain is hardware-enforced by host OS."
+    fleet_synapse_search = mcp.tool(
+        name="fleet_synapse_search",
+        description="Search fleet synapse on-demand. Query domain is host-enforced by OS environment."
     )(fleet_memory_search)
 
-    fleet_memory_store = mcp.tool(
+    fleet_synapse_store = mcp.tool(
+        name="fleet_synapse_store",
+        description="Store or update architectural notes in fleet synapse. Domain is host-enforced."
+    )(fleet_memory_store)
+
+    # Backwards compatibility aliases
+    mcp.tool(
+        name="fleet_memory_search",
+        description="Alias for fleet_synapse_search."
+    )(fleet_memory_search)
+
+    mcp.tool(
         name="fleet_memory_store",
-        description="Store or update architectural notes in fleet memory. Domain is hardware-enforced."
+        description="Alias for fleet_synapse_store."
     )(fleet_memory_store)
 
     @mcp.tool(

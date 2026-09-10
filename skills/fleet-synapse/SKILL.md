@@ -1,12 +1,12 @@
 ---
-name: fleet-memory
-description: Use when recalling or storing architecture, hardware specs, GPU settings, payment APIs, or cross-node notes across the Hermes fleet.
-version: 1.2.0
+name: fleet-synapse
+description: Use when recalling or storing architecture, hardware specs, GPU settings, payment APIs, or cross-node notes across the Hermes fleet synapse mesh.
+version: 1.3.0
 author: Amirul Azwan
 license: MIT
 ---
 
-# Fleet Memory & Sovereign Mesh (Paradigm E++)
+# Fleet Synapse & Sovereign Mesh (Paradigm E++)
 
 Universal on-demand vector memory, domain-isolated vaults, and remote execution mesh linking Node 1 (Chester / VPS), Node 2 (Wolf / Corporate PC), and Node 3 (Winston / Personal PC).
 
@@ -18,7 +18,7 @@ When the user asks about:
 - Architectural notes, past decisions, or multi-node state
 
 **DO NOT attempt to execute local bash commands on the host to inspect a remote machine.**  
-**ALWAYS call `fleet_memory_search(query=...)` first.** The fleet vector store holds the authoritative state cards for all nodes.
+**ALWAYS call `fleet_synapse_search(query=...)` (or `fleet_memory_search`) first.** The fleet vector store holds the authoritative state cards for all nodes.
 
 ---
 
@@ -31,13 +31,13 @@ When the user asks about:
 
 ## Tools Reference
 
-### 1. `fleet_memory_search`
+### 1. `fleet_synapse_search` (Alias: `fleet_memory_search`)
 Query fleet vector memory on-demand:
 - `query` (str): Search inquiry (e.g. "RTX 3070 Ti undervolt", "payment webhook secret").
 - `target_domain` (optional): "personal", "work", "shared", or "all" (must match node permissions).
 - `limit` (int, default 5): Maximum cards to return.
 
-### 2. `fleet_memory_store`
+### 2. `fleet_synapse_store` (Alias: `fleet_memory_store`)
 Store or update knowledge in the vector store:
 - `text` (str): Authoritative factual markdown or documentation.
 - `slot_name` (optional): **Track A Deterministic Slot** (e.g. `gpu_profile`, `vps_caddy_spec`). Generates deterministic UUID5 ID for $O(1)$ in-place overwrites. Automatically pinned.

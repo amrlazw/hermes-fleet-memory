@@ -1,8 +1,8 @@
-# hermes-fleet-memory
+# hermes-fleet-synapse
 
-> **Zero-bloat distributed vector memory, hardware-enforced domain firewalls, and NAT-traversing execution mesh for multi-instance Hermes agent fleets.**
+> **Zero-bloat distributed vector memory, host-environment domain firewalls, and NAT-traversing execution mesh for multi-instance Hermes agent fleets.**
 
-[![CI](https://github.com/amrlazw/hermes-fleet-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/amrlazw/hermes-fleet-memory/actions)
+[![CI](https://github.com/amrlazw/hermes-fleet-synapse/actions/workflows/ci.yml/badge.svg)](https://github.com/amrlazw/hermes-fleet-synapse/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![FastMCP](https://img.shields.io/badge/Protocol-FastMCP%202.x-green.svg)](https://modelcontextprotocol.io/)
 [![Qdrant](https://img.shields.io/badge/Vector%20Engine-Qdrant-red.svg)](https://qdrant.tech/)
@@ -15,9 +15,9 @@
 
 ### What is Paradigm E++?
 
-**Paradigm E++** (*Epistemic State, Vector Embeddings, Distributed Execution Mesh*) is the formal architectural specification underlying Hermes Fleet Memory:
+**Paradigm E++** (*Epistemic State, Vector Embeddings, Distributed Execution Mesh*) is the formal architectural specification underlying Hermes Fleet Synapse:
 
-1. **Zero Ambient Prompt Bloat (`memory.provider: none`):** Memory is never ambiently stuffed into the LLM system prompt. Retrieval is on-demand via explicit FastMCP vector searches (`fleet_memory_search`), cutting prompt costs to zero for turns where memory is unnecessary.
+1. **Zero Ambient Prompt Bloat (`memory.provider: none`):** Memory is never ambiently stuffed into the LLM system prompt. Retrieval is on-demand via explicit FastMCP vector searches (`fleet_synapse_search` / `fleet_memory_search`), cutting prompt costs to zero for turns where memory is unnecessary.
 2. **Deterministic State Resolution (UUID5 + LWW):** Overwrites stale facts in-place using deterministic DNS-namespace UUID5 hashes (`domain:client_id:slot_name`), combined with **Last-Write-Wins (LWW)** timestamped validation to prevent out-of-order split-brain corruption.
 3. **Infrastructure-Enforced Domain Firewalls (`FLEET_HARD_DOMAIN`):** Strict client-level boundary gates prevent enterprise data from cross-contaminating personal workstations, eliminating reliance on probabilistic LLM compliance.
 
