@@ -1,15 +1,28 @@
-# hermes-fleet-memory
+<div align="center">
 
-> **Zero-bloat distributed vector memory, host-environment domain firewalls, and NAT-traversing execution mesh for multi-instance Hermes agent fleets.**
+```text
+  ██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗
+  ██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝
+  ███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗
+  ██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║
+  ██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║
+  ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝
+   F L E E T   M E M O R Y   &   S Y N A P S E   M E S H
+```
 
-[![CI](https://github.com/amrlazw/hermes-fleet-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/amrlazw/hermes-fleet-memory/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![FastMCP](https://img.shields.io/badge/Protocol-FastMCP%202.x-green.svg)](https://modelcontextprotocol.io/)
-[![Qdrant](https://img.shields.io/badge/Vector%20Engine-Qdrant-red.svg)](https://qdrant.tech/)
-[![Architecture](https://img.shields.io/badge/Architecture-Paradigm%20E%2B%2B-purple.svg)]()
-[![Quantization](https://img.shields.io/badge/Quantization-INT8%20Scalar%20(4x)-orange.svg)]()
-[![Concurrency](https://img.shields.io/badge/Concurrency-LWW%20%2B%20UUID5-blueviolet.svg)]()
-[![Zero Ambient Bloat](https://img.shields.io/badge/Prompt%20Overhead-0%20Tokens-brightgreen.svg)]()
+### Distributed Cognitive Vector Mesh for Multi-Instance AI Agent Fleets
+*Zero Ambient Prompt Bloat • Host-Enforced Domain Firewalls • NAT-Traversing Execution*
+
+<p align="center">
+  <a href="https://github.com/amrlazw/hermes-fleet-memory/actions"><img src="https://img.shields.io/github/actions/workflow/status/amrlazw/hermes-fleet-memory/ci.yml?branch=main&style=for-the-badge&logo=github&label=CI%20Build" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="License"></a>
+  <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/Protocol-FastMCP%202.x-10b981.svg?style=for-the-badge&logo=anthropic" alt="FastMCP"></a>
+  <a href="https://qdrant.tech/"><img src="https://img.shields.io/badge/Vector%20DB-Qdrant%20INT8-dc2626.svg?style=for-the-badge" alt="Qdrant"></a>
+  <a href="#"><img src="https://img.shields.io/badge/Prompt%20Overhead-0%20Tokens-059669.svg?style=for-the-badge" alt="Zero Overhead"></a>
+  <a href="#"><img src="https://img.shields.io/badge/Spec-Paradigm%20E%2B%2B-7c3aed.svg?style=for-the-badge" alt="Paradigm E++"></a>
+</p>
+
+</div>
 
 ---
 
