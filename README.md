@@ -140,6 +140,13 @@ cd hermes-fleet-memory
 python setup.py
 
 # Headless / Autonomous Mode (For AI Agents — Claude Code, Hermes, Cursor):
+# 1. Pre-flight scan & feedback:
+python setup.py --scan --json
+
+# 2. Execute recommended sequence autonomously:
+python setup.py --apply-plan --json
+
+# Or manually target specific roles in autonomous CI/CD scripts:
 python setup.py --role hub --server-host brain.example.com --deploy-method docker --non-interactive --json
 python setup.py --role desktop --domain personal --client-id winston --cluster-secret <KEY> --non-interactive --json
 python setup.py --role edge --domain work --client-id laptop --cluster-secret <KEY> --non-interactive --json

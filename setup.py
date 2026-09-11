@@ -63,12 +63,119 @@ def prompt_yes_no(question: str, default: bool = True) -> bool:
         return default
     return val in ["y", "yes"]
 
+def scan_system_environment() -> dict:
+    """
+    Introspects host hardware, operating system, Docker daemon, GPUs, network interfaces,
+    and existing AI agent configurations (Hermes, Claude Desktop, Cursor) to formulate
+    an intelligent, tailored provisioning recommendation.
+    """
+    import shutil
+    plat = platform.system().lower()
+    
+    # 1. Hardware & GPU Detection
+    gpu_desc = None
+    if shutil.which("nvidia-smi"):
+        try:
+            out = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+                capture_output=True, text=True, timeout=3
+            ).stdout.strip()
+            if out:
+                gpu_desc = out.splitlines()[0]
+        except Exception:
+            pass
+
+    # 2. Tooling / Daemons Detection
+    has_docker = bool(shutil.which("docker"))
+    has_wstunnel = bool(shutil.which("wstunnel") or shutil.which("wstunnel.exe"))
+    
+    # Check local hermes / AppData wstunnel
+    if not has_wstunnel:
+        candidate_wstunnels = [
+            Path.home() / ".local/bin/wstunnel",
+            Path(os.path.expandvars(r"%LOCALAPPDATA%\hermes\bin\wstunnel.exe"))
+        ]
+        has_wstunnel = any(p.exists() for p in candidate_wstunnels)
+
+    # 3. Installed AI Frameworks
+    installed_frameworks = []
+    hermes_cfg = Path.home() / ".hermes/config.yaml"
+    if hermes_cfg.exists():
+        installed_frameworks.append("Hermes Agent")
+
+    claude_cfgs = [
+        Path.home() / ".config/Claude/claude_desktop_config.json",
+        Path(os.path.expandvars(r"%APPDATA%\Claude\claude_desktop_config.json"))
+    ]
+    if any(p.exists() for p in claude_cfgs):
+        installed_frameworks.append("Claude Desktop")
+
+    cursor_cfgs = [
+        Path.home() / ".cursor",
+        Path(os.path.expandvars(r"%USERPROFILE%\.cursor"))
+    ]
+    if any(p.exists() for p in cursor_cfgs):
+        installed_frameworks.append("Cursor")
+
+    # 4. Synthesize Intelligent Recommendation
+    recommended_role = "edge"
+    recommended_sequence = "Member Node attachment linking back to Cloud Hub"
+
+    if plat == "linux" and not gpu_desc:
+        # Standard cloud VPS profile (Head node)
+        recommended_role = "hub"
+        recommended_sequence = "Head Node provisioning: Deploy Qdrant vector database + WSTunnel ingress server first."
+    elif gpu_desc:
+        # GPU Workstation rig
+        recommended_role = "desktop"
+        recommended_sequence = "Desktop Rig provisioning: Activate Desktop Bridge v2 + connect reverse WSTunnel to Hub."
+    else:
+        # Laptop / Client
+        recommended_role = "edge"
+        recommended_sequence = "Client / Edge Laptop provisioning: Lock domain to 'work' and wire FastMCP tool."
+
+    return {
+        "platform": plat,
+        "os_version": platform.platform(),
+        "python_version": platform.python_version(),
+        "has_docker": has_docker,
+        "has_wstunnel": has_wstunnel,
+        "gpu_detected": gpu_desc,
+        "installed_frameworks": installed_frameworks,
+        "recommended_role": recommended_role,
+        "recommended_sequence": recommended_sequence
+    }
+
 def run_autonomous_agent_setup(args):
     """
     Unattended headless execution path tailored for autonomous AI agents
     (Hermes, Claude Code, Codex, Devin, Cursor).
     Enforces deterministic validation, zero TTY hangs, and JSON verification receipts.
     """
+    if args.scan:
+        report = scan_system_environment()
+        if args.json:
+            print(json.dumps(report, indent=2))
+        else:
+            print(f"\n{CYAN}{BOLD}=== [System Pre-Flight Diagnostic Scan] ==={RESET}")
+            print(f"OS Platform:          {BOLD}{report['platform']} ({report['os_version']}){RESET}")
+            print(f"Python Environment:   {BOLD}{report['python_version']}{RESET}")
+            print(f"Docker Engine:        {'[READY]' if report['has_docker'] else '[NOT FOUND]'}")
+            print(f"WSTunnel Binary:      {'[READY]' if report['has_wstunnel'] else '[NOT FOUND]'}")
+            print(f"GPU Hardware:         {report['gpu_detected'] or 'None / CPU-only'}")
+            print(f"Installed AI Clients: {', '.join(report['installed_frameworks']) if report['installed_frameworks'] else 'None detected'}")
+            print(f"\n{YELLOW}{BOLD}Recommended Role:{RESET}     {BOLD}{report['recommended_role'].upper()}{RESET}")
+            print(f"{YELLOW}{BOLD}Recommended Sequence:{RESET} {report['recommended_sequence']}")
+            print(f"\n{DIM}To apply this recommendation autonomously, run:{RESET}")
+            print(f"  {CYAN}python setup.py --apply-plan --json{RESET}\n")
+        return
+
+    # If user/agent wants to auto-apply the recommendation
+    if args.apply_plan:
+        report = scan_system_environment()
+        args.role = report["recommended_role"]
+        args.domain = "personal" if args.role == "desktop" else ("work" if args.role == "edge" else "all")
+
     role = args.role or "standalone"
     receipt = {
         "status": "success",
@@ -151,10 +258,12 @@ def main():
     parser.add_argument("--deploy-method", choices=["docker", "systemd"], default="docker", help="Server deploy method")
     parser.add_argument("--non-interactive", action="store_true", help="Run unattended without interactive prompts (for AI agents)")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON summary on completion")
+    parser.add_argument("--scan", action="store_true", help="Perform non-invasive pre-flight environment scan and return architectural recommendation")
+    parser.add_argument("--apply-plan", action="store_true", help="Autonomously execute the recommended architecture plan from scan")
     args = parser.parse_args()
 
     # Autonomous AI Agent Headless Mode
-    if args.non_interactive or args.role:
+    if args.non_interactive or args.role or args.scan or args.apply_plan:
         run_autonomous_agent_setup(args)
         return
 
