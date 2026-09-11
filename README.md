@@ -5,12 +5,13 @@
 </a>
 
 <p align="center">
-  <a href="https://github.com/amrlazw/hermes-fleet-memory/actions"><img src="https://img.shields.io/github/actions/workflow/status/amrlazw/hermes-fleet-memory/ci.yml?branch=main&style=for-the-badge&logo=github&label=CI%20Build" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="License"></a>
-  <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/Protocol-FastMCP%202.x-10b981.svg?style=for-the-badge&logo=anthropic" alt="FastMCP"></a>
-  <a href="https://qdrant.tech/"><img src="https://img.shields.io/badge/Vector%20DB-Qdrant%20INT8-dc2626.svg?style=for-the-badge" alt="Qdrant"></a>
-  <a href="#"><img src="https://img.shields.io/badge/Prompt%20Overhead-0%20Tokens-059669.svg?style=for-the-badge" alt="Zero Overhead"></a>
-  <a href="#"><img src="https://img.shields.io/badge/Spec-Paradigm%20E%2B%2B-7c3aed.svg?style=for-the-badge" alt="Paradigm E++"></a>
+  <a href="https://github.com/amrlazw/hermes-fleet-memory/actions"><img src="https://img.shields.io/badge/CI_BUILD-PASSING-059669?style=flat-square&logo=githubactions&logoColor=white&labelColor=111827" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/LICENSE-MIT-3b82f6?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=111827" alt="License"></a>
+  <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/FASTMCP-2.X_READY-10b981?style=flat-square&logo=anthropic&logoColor=white&labelColor=111827" alt="FastMCP"></a>
+  <a href="https://qdrant.tech/"><img src="https://img.shields.io/badge/VECTOR_DB-QDRANT_INT8-ef4444?style=flat-square&logo=qdrant&logoColor=white&labelColor=111827" alt="Qdrant"></a>
+  <a href="#"><img src="https://img.shields.io/badge/PROMPT_OVERHEAD-0_TOKENS-06b6d4?style=flat-square&logo=speedtest&logoColor=white&labelColor=111827" alt="Zero Overhead"></a>
+  <a href="#"><img src="https://img.shields.io/badge/ARCHITECTURE-PARADIGM_E%2B%2B-8b5cf6?style=flat-square&logo=hyper&logoColor=white&labelColor=111827" alt="Paradigm E++"></a>
+  <a href="#"><img src="https://img.shields.io/badge/PYTHON-3.10%2B-f59e0b?style=flat-square&logo=python&logoColor=white&labelColor=111827" alt="Python 3.10+"></a>
 </p>
 
 </div>
