@@ -1,8 +1,8 @@
-# hermes-fleet-synapse
+# hermes-fleet-memory
 
 > **Zero-bloat distributed vector memory, host-environment domain firewalls, and NAT-traversing execution mesh for multi-instance Hermes agent fleets.**
 
-[![CI](https://github.com/amrlazw/hermes-fleet-synapse/actions/workflows/ci.yml/badge.svg)](https://github.com/amrlazw/hermes-fleet-synapse/actions)
+[![CI](https://github.com/amrlazw/hermes-fleet-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/amrlazw/hermes-fleet-memory/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![FastMCP](https://img.shields.io/badge/Protocol-FastMCP%202.x-green.svg)](https://modelcontextprotocol.io/)
 [![Qdrant](https://img.shields.io/badge/Vector%20Engine-Qdrant-red.svg)](https://qdrant.tech/)

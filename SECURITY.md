@@ -1,6 +1,6 @@
 # Security Policy & Threat Model
 
-This document outlines the security architecture, threat model, and defense-in-depth mechanisms governing **hermes-fleet-synapse** and the **Paradigm E++** distributed agent mesh.
+This document outlines the security architecture, threat model, and defense-in-depth mechanisms governing **hermes-fleet-memory** and the **Paradigm E++** distributed agent mesh.
 
 ---
 
