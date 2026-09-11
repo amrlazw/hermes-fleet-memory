@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 240" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0a14"/>
+      <stop offset="50%" stop-color="#121124"/>
+      <stop offset="100%" stop-color="#07070d"/>
+    </linearGradient>
+
+    <!-- Border Glow Gradient -->
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7928ca" stop-opacity="0.3"/>
+      <stop offset="50%" stop-color="#00dfd8" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#ff0080" stop-opacity="0.3"/>
+    </linearGradient>
+
+    <!-- Text Neon Gradient -->
+    <linearGradient id="neonText" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00dfd8"/>
+      <stop offset="30%" stop-color="#7928ca"/>
+      <stop offset="70%" stop-color="#ff0080"/>
+      <stop offset="100%" stop-color="#00dfd8"/>
+    </linearGradient>
+
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <radialGradient id="meshCenter" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7928ca" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <style>
+    .ascii {
+      font-family: 'Courier New', 'SF Mono', Consolas, Monaco, monospace;
+      font-size: 15px;
+      font-weight: 900;
+      fill: url(#neonText);
+      text-anchor: middle;
+      dominant-baseline: central;
+      letter-spacing: 2px;
+    }
+    .subtext {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      fill: #a0aec0;
+      letter-spacing: 7px;
+      text-anchor: middle;
+      text-transform: uppercase;
+    }
+    .tagline {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      fill: #4fd1c5;
+      text-anchor: middle;
+      letter-spacing: 1px;
+    }
+  </style>
+
+  <!-- Container Box with Rounded Edges & Glass Stroke -->
+  <rect x="10" y="10" width="880" height="220" rx="16" fill="url(#bgGrad)" stroke="url(#borderGrad)" stroke-width="1.5"/>
+  <circle cx="450" cy="110" r="280" fill="url(#meshCenter)"/>
+
+  <!-- Centered ASCII Art (Dead Center) -->
+  <g filter="url(#glow)">
+    <text x="450" y="55" class="ascii">██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗</text>
+    <text x="450" y="73" class="ascii">██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝</text>
+    <text x="450" y="91" class="ascii">███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗</text>
+    <text x="450" y="109" class="ascii">██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║</text>
+    <text x="450" y="127" class="ascii">██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║</text>
+    <text x="450" y="145" class="ascii">╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝</text>
+  </g>
+
+  <!-- Subtitle -->
+  <text x="450" y="178" class="subtext">FLEET MEMORY &amp; SYNAPSE MESH</text>
+  <text x="450" y="202" class="tagline">Paradigm E++ • Zero Ambient Prompt Bloat • Distributed Vector Mesh</text>
+</svg>

@@ -1,17 +1,8 @@
 <div align="center">
 
-```text
-       ██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗
-       ██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝
-       ███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗
-       ██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║
-       ██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║
-       ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝
-        F L E E T   M E M O R Y   &   S Y N A P S E   M E S H
-```
-
-### Distributed Cognitive Vector Mesh for Multi-Instance AI Agent Fleets
-*Zero Ambient Prompt Bloat • Host-Enforced Domain Firewalls • NAT-Traversing Execution*
+<a href="https://github.com/amrlazw/hermes-fleet-memory">
+  <img src="assets/banner.svg" alt="Hermes Fleet Memory & Synapse Mesh" width="100%">
+</a>
 
 <p align="center">
   <a href="https://github.com/amrlazw/hermes-fleet-memory/actions"><img src="https://img.shields.io/github/actions/workflow/status/amrlazw/hermes-fleet-memory/ci.yml?branch=main&style=for-the-badge&logo=github&label=CI%20Build" alt="CI"></a>
