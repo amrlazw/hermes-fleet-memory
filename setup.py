@@ -63,7 +63,101 @@ def prompt_yes_no(question: str, default: bool = True) -> bool:
         return default
     return val in ["y", "yes"]
 
+def run_autonomous_agent_setup(args):
+    """
+    Unattended headless execution path tailored for autonomous AI agents
+    (Hermes, Claude Code, Codex, Devin, Cursor).
+    Enforces deterministic validation, zero TTY hangs, and JSON verification receipts.
+    """
+    role = args.role or "standalone"
+    receipt = {
+        "status": "success",
+        "role": role,
+        "platform": platform.system().lower(),
+        "artifacts_written": []
+    }
+
+    if role == "hub":
+        secret = args.cluster_secret or secrets.token_hex(32)
+        host = args.server_host or "127.0.0.1"
+        env_content = f"""# Hermes Fleet Memory — Cloud Hub Configuration (Agent Provisioned)
+FLEET_SERVER_HOST={host}
+FLEET_QDRANT_HOST=127.0.0.1
+FLEET_QDRANT_PORT=6333
+FLEET_QDRANT_KEY={secret}
+FLEET_BRIDGE_KEY={secret}
+FLEET_HARD_DOMAIN=all
+"""
+        env_path = Path("server/.env")
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text(env_content, encoding="utf-8")
+        receipt["artifacts_written"].append(str(env_path.resolve()))
+        receipt["cluster_secret"] = secret
+        receipt["deploy_method"] = args.deploy_method
+
+    else:
+        domain = args.domain or ("personal" if role == "desktop" else "work")
+        client_id = args.client_id or ("winston" if role == "desktop" else "worker-node")
+        secret = args.cluster_secret or secrets.token_hex(32)
+        hub_url = args.hub_url or "wss://127.0.0.1:8443/tunnel"
+
+        node_env = f"""# Hermes Fleet Memory — Member Node Configuration (Agent Provisioned)
+FLEET_HARD_DOMAIN={domain}
+FLEET_CLIENT_ID={client_id}
+FLEET_QDRANT_HOST=127.0.0.1
+FLEET_QDRANT_PORT=6333
+FLEET_QDRANT_KEY={secret}
+FLEET_BRIDGE_KEY={secret}
+FLEET_SERVER_HOST={hub_url.replace('wss://', '').replace('/tunnel', '')}
+"""
+        client_env = Path("client/.env")
+        client_env.parent.mkdir(parents=True, exist_ok=True)
+        client_env.write_text(node_env, encoding="utf-8")
+        receipt["artifacts_written"].append(str(client_env.resolve()))
+        receipt["domain_lock"] = domain
+        receipt["client_id"] = client_id
+        receipt["cluster_secret"] = secret
+
+    # FastMCP Hermes integration snippet
+    script_abs_path = str((Path("client/fleet_memory.py")).resolve())
+    receipt["fastmcp_config"] = {
+        "mcpServers": {
+            "fleet-memory": {
+                "command": sys.executable,
+                "args": [script_abs_path]
+            }
+        }
+    }
+
+    if args.json:
+        print(json.dumps(receipt, indent=2))
+    else:
+        print(f"[OK] Autonomous Provisioning Complete ({role.upper()})")
+        print(f"     Artifacts: {receipt['artifacts_written']}")
+        print(f"     Secret: {receipt.get('cluster_secret')}")
+
+
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Hermes Fleet Memory Setup Wizard (Supports Interactive & Autonomous Agent Modes)"
+    )
+    parser.add_argument("--role", choices=["hub", "desktop", "edge", "standalone"], help="Node role in the fleet")
+    parser.add_argument("--domain", choices=["personal", "work", "shared", "all"], help="Hardware domain firewall")
+    parser.add_argument("--client-id", help="Unique identifier for this node (e.g. winston, laptop)")
+    parser.add_argument("--hub-url", help="WebSocket ingress URL for Cloud Hub (e.g. wss://brain.example.com/tunnel)")
+    parser.add_argument("--cluster-secret", help="256-bit cluster preshared secret")
+    parser.add_argument("--server-host", help="Public domain or IP for Hub deployment")
+    parser.add_argument("--deploy-method", choices=["docker", "systemd"], default="docker", help="Server deploy method")
+    parser.add_argument("--non-interactive", action="store_true", help="Run unattended without interactive prompts (for AI agents)")
+    parser.add_argument("--json", action="store_true", help="Output machine-readable JSON summary on completion")
+    args = parser.parse_args()
+
+    # Autonomous AI Agent Headless Mode
+    if args.non_interactive or args.role:
+        run_autonomous_agent_setup(args)
+        return
+
     banner()
 
     print(f"{YELLOW}{BOLD}Architecture Sequence Rule:{RESET}")

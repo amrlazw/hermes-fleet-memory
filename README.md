@@ -136,8 +136,13 @@ Instead of hand-writing `.env` files and configuring reverse proxy headers manua
 git clone https://github.com/amrlazw/hermes-fleet-memory.git
 cd hermes-fleet-memory
 
-# Launch the interactive wizard
+# Interactive Mode (For Humans — prompts step-by-step):
 python setup.py
+
+# Headless / Autonomous Mode (For AI Agents — Claude Code, Hermes, Cursor):
+python setup.py --role hub --server-host brain.example.com --deploy-method docker --non-interactive --json
+python setup.py --role desktop --domain personal --client-id winston --cluster-secret <KEY> --non-interactive --json
+python setup.py --role edge --domain work --client-id laptop --cluster-secret <KEY> --non-interactive --json
 ```
 
 The wizard will:
