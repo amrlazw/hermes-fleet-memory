@@ -120,3 +120,25 @@ def test_blocked_file_substrings():
                 blocked = True
                 break
         assert blocked, f"Path '{path_str}' should have been blocked by BLOCKED_SUBSTRINGS!"
+
+
+def test_load_env_file_pure_python(tmp_path, monkeypatch):
+    """Verifies that the stdlib env loader accurately parses variables without external libraries."""
+    test_env = tmp_path / ".env"
+    test_env.write_text(
+        "# Comment line\n"
+        "TEST_PORT=9099\n"
+        "TEST_KEY=\"secret_key_123\"\n"
+        "TEST_SINGLE='single_quote_val'\n"
+        "\n"
+        "TEST_EMPTY=\n",
+        encoding="utf-8"
+    )
+
+    desktop_bridge.load_env_file(str(test_env))
+    import os
+    assert os.getenv("TEST_PORT") == "9099"
+    assert os.getenv("TEST_KEY") == "secret_key_123"
+    assert os.getenv("TEST_SINGLE") == "single_quote_val"
+    assert os.getenv("TEST_EMPTY") == ""
+

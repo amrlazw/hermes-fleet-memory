@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-hermes-fleet-memory: Desktop Execution Bridge
-Hardened, zero-dependency HTTP bridge allowing remote nodes to query telemetry,
-execute safe allowlisted commands, and read authorized files with defense-in-depth security.
+hermes-fleet-memory: Hardened Desktop Execution & Blob Bridge (v2)
+Zero-dependency, stdlib-only HTTP bridge allowing remote nodes to query telemetry,
+execute safe allowlisted commands, download binary blobs, and archive directories with defense-in-depth security.
 """
 
 import os
@@ -12,31 +12,42 @@ import json
 import hmac
 import time
 import shlex
+import zipfile
+import tempfile
+import urllib.parse
 import subprocess
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
-# Load environment variables from Hermes profile if available
-try:
-    import dotenv
-    candidate_envs = [
-        os.path.expanduser("~/.hermes/.env"),
-        os.path.expandvars(r"%LOCALAPPDATA%\hermes\profiles\winston\.env"),
-        os.path.expanduser("~/.hermes/profiles/winston/.env"),
-        os.path.join(os.path.dirname(__file__), ".env")
-    ]
-    for env_p in candidate_envs:
-        if os.path.exists(env_p):
-            dotenv.load_dotenv(env_p, override=False)
-except Exception:
-    pass
+# Pure Python standard-library .env loader (zero external dependencies)
+def load_env_file(path: str):
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        val = v.strip().strip("'\"")
+                        os.environ[k.strip()] = val
+        except Exception:
+            pass
+
+candidate_envs = [
+    os.path.expanduser("~/.hermes/.env"),
+    os.path.expandvars(r"%LOCALAPPDATA%\hermes\profiles\winston\.env"),
+    os.path.expanduser("~/.hermes/profiles/winston/.env"),
+    os.path.join(os.path.dirname(__file__), ".env")
+]
+for env_p in candidate_envs:
+    load_env_file(env_p)
 
 PORT = int(os.getenv("FLEET_BRIDGE_PORT", "8099"))
 HOST = "127.0.0.1"
 
 # Decoupled bridge execution secret (distinct from Qdrant vector database key)
-# Falls back to FLEET_QDRANT_KEY with legacy warning if FLEET_BRIDGE_KEY is unset
-FLEET_BRIDGE_KEY = os.getenv("FLEET_BRIDGE_KEY") or os.getenv("FLEET_QDRANT_KEY") or "your_256bit_cluster_secret"
+# Falls back to FLEET_QDRANT_KEY if FLEET_BRIDGE_KEY is unset
+FLEET_BRIDGE_KEY = os.getenv("FLEET_BRIDGE_KEY") or os.getenv("FLEET_QDRANT_KEY") or ""
 
 # Jailed directory for safe file retrieval (defaults to user home)
 ALLOWED_ROOT = Path(os.getenv("FLEET_ALLOWED_ROOT", str(Path.home()))).resolve()
@@ -129,7 +140,6 @@ def parse_and_validate_command(cmd_str: str) -> list:
 
 class SecureBridgeHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        # Suppress noisy standard request logging
         pass
 
     def _send_json(self, status_code: int, data: dict):
@@ -141,19 +151,67 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _verify_auth(self) -> bool:
-        if not FLEET_BRIDGE_KEY:
-            return False
         auth_header = self.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             return False
         token = auth_header[7:].strip()
-        return hmac.compare_digest(token, FLEET_BRIDGE_KEY)
+        current_key = FLEET_BRIDGE_KEY or os.getenv("FLEET_BRIDGE_KEY") or os.getenv("FLEET_QDRANT_KEY") or ""
+        if not current_key:
+            return False
+        return hmac.compare_digest(token, current_key)
+
+    def _stream_file(self, raw_path: str):
+        if not raw_path:
+            self._send_json(400, {"error": "No path provided"})
+            return
+        try:
+            target_path = Path(raw_path).resolve()
+        except Exception as e:
+            self._send_json(400, {"error": f"Invalid path resolution: {e}"})
+            return
+
+        try:
+            target_path.relative_to(ALLOWED_ROOT)
+        except ValueError:
+            self._send_json(403, {"error": f"Access denied: Path outside of {ALLOWED_ROOT}"})
+            return
+
+        path_str_lower = str(target_path).lower()
+        for blocked in BLOCKED_SUBSTRINGS:
+            if blocked in path_str_lower:
+                self._send_json(403, {"error": f"Access denied: Path contains sensitive pattern '{blocked}'"})
+                return
+
+        if not target_path.exists():
+            self._send_json(404, {"error": "File not found"})
+            return
+
+        if not target_path.is_file():
+            self._send_json(400, {"error": "Path is not a regular file"})
+            return
+
+        file_size = target_path.stat().st_size
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(file_size))
+        self.send_header("Content-Disposition", f'attachment; filename="{target_path.name}"')
+        self.end_headers()
+
+        with open(target_path, "rb") as f:
+            while True:
+                chunk = f.read(64 * 1024)
+                if not chunk:
+                    break
+                try:
+                    self.wfile.write(chunk)
+                except Exception:
+                    break
 
     def do_GET(self):
-        # Allow loopback health checks without auth if needed for local probes,
-        # but require auth for sensitive queries
-        if self.path in ["/health", "/status"]:
-            gpu_info = "N/A"
+        parsed_url = urllib.parse.urlparse(self.path)
+
+        if parsed_url.path in ["/health", "/status"]:
+            gpu_data = {"name": "NVIDIA GPU", "temp_c": 0, "utilization_pct": 0, "mem_used_mb": 0, "mem_total_mb": 0}
             try:
                 gpu_proc = subprocess.run(
                     ALLOWED_ACTIONS["gpu_status"],
@@ -162,31 +220,36 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
                     shell=False,
                     timeout=5
                 )
-                if gpu_proc.returncode == 0:
+                if gpu_proc.returncode == 0 and gpu_proc.stdout.strip():
                     parts = [p.strip() for p in gpu_proc.stdout.strip().split(",")]
                     if len(parts) >= 5:
-                        gpu_info = {
-                            "name": parts[0],
-                            "temp_c": int(parts[1]),
-                            "utilization_pct": int(parts[2]),
-                            "mem_used_mb": int(parts[3]),
-                            "mem_total_mb": int(parts[4])
-                        }
-            except Exception as e:
-                gpu_info = f"GPU query error: {e}"
+                        gpu_data["name"] = parts[0]
+                        gpu_data["temp_c"] = int(parts[1]) if parts[1].isdigit() else 0
+                        gpu_data["utilization_pct"] = int(parts[2]) if parts[2].isdigit() else 0
+                        gpu_data["mem_used_mb"] = int(parts[3]) if parts[3].isdigit() else 0
+                        gpu_data["mem_total_mb"] = int(parts[4]) if parts[4].isdigit() else 0
+            except Exception:
+                pass
 
             self._send_json(200, {
                 "status": "online",
-                "node": os.getenv("FLEET_NODE_NAME", "Workstation"),
+                "node": "Workstation",
                 "os": sys.platform,
                 "timestamp": time.time(),
-                "gpu": gpu_info
+                "gpu": gpu_data
             })
-        else:
+            return
+
+        if parsed_url.path == "/download":
             if not self._verify_auth():
                 self._send_json(401, {"error": "Unauthorized: Invalid or missing token"})
                 return
-            self._send_json(404, {"error": "Not Found"})
+            params = urllib.parse.parse_qs(parsed_url.query)
+            raw_path = params.get("path", [""])[0].strip()
+            self._stream_file(raw_path)
+            return
+
+        self._send_json(404, {"error": "Not Found"})
 
     def do_POST(self):
         if not self._verify_auth():
@@ -194,10 +257,6 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
             return
 
         content_length = int(self.headers.get("Content-Length", 0))
-        if content_length > 1024 * 1024:  # Max 1MB payload
-            self._send_json(413, {"error": "Payload too large (max 1MB)"})
-            return
-
         body = self.rfile.read(content_length)
         try:
             req_data = json.loads(body.decode("utf-8"))
@@ -228,13 +287,12 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
                 return
 
             try:
-                # Strictly execute with shell=False to prevent subshell/command injection
                 proc = subprocess.run(
                     tokens,
                     shell=False,
                     capture_output=True,
                     text=True,
-                    timeout=30
+                    timeout=60
                 )
                 self._send_json(200, {
                     "exit_code": proc.returncode,
@@ -242,9 +300,60 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
                     "stderr": proc.stderr[:50000]
                 })
             except subprocess.TimeoutExpired:
-                self._send_json(408, {"error": "Command timed out after 30 seconds"})
+                self._send_json(408, {"error": "Command timed out after 60 seconds"})
             except Exception as e:
                 self._send_json(500, {"error": f"Execution error: {e}"})
+
+        elif self.path == "/download":
+            raw_path = req_data.get("path", "").strip()
+            self._stream_file(raw_path)
+
+        elif self.path == "/archive":
+            raw_path = req_data.get("path", "").strip()
+            if not raw_path:
+                self._send_json(400, {"error": "No path provided"})
+                return
+
+            try:
+                target_dir = Path(raw_path).resolve()
+            except Exception as e:
+                self._send_json(400, {"error": f"Invalid path resolution: {e}"})
+                return
+
+            try:
+                target_dir.relative_to(ALLOWED_ROOT)
+            except ValueError:
+                self._send_json(403, {"error": f"Access denied: Path outside of {ALLOWED_ROOT}"})
+                return
+
+            path_str_lower = str(target_dir).lower()
+            for blocked in BLOCKED_SUBSTRINGS:
+                if blocked in path_str_lower:
+                    self._send_json(403, {"error": f"Access denied: Path contains sensitive pattern '{blocked}'"})
+                    return
+
+            if not target_dir.exists() or not target_dir.is_dir():
+                self._send_json(404, {"error": "Directory not found"})
+                return
+
+            try:
+                tmp_zip = os.path.join(tempfile.gettempdir(), f"fleet_archive_{int(time.time())}_{target_dir.name}.zip")
+                with zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
+                    for root, dirs, files in os.walk(target_dir):
+                        for f in files:
+                            full_p = os.path.join(root, f)
+                            rel_p = os.path.relpath(full_p, target_dir)
+                            zipf.write(full_p, rel_p)
+
+                zip_size = os.path.getsize(tmp_zip)
+                self._send_json(200, {
+                    "status": "success",
+                    "archive_path": tmp_zip,
+                    "size_bytes": zip_size,
+                    "download_url": f"/download?path={urllib.parse.quote(tmp_zip)}"
+                })
+            except Exception as e:
+                self._send_json(500, {"error": f"Failed to create archive: {e}"})
 
         elif self.path == "/read_file":
             raw_path = req_data.get("path", "").strip()
@@ -279,7 +388,6 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
                 return
 
             try:
-                # 5MB read limit
                 if target_path.stat().st_size > 5 * 1024 * 1024:
                     self._send_json(413, {"error": "File too large (max 5MB)"})
                     return
@@ -335,9 +443,9 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
 
 def run_bridge():
     server = HTTPServer((HOST, PORT), SecureBridgeHandler)
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Hardened Desktop Bridge active on {HOST}:{PORT}")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Hardened Desktop Bridge v2 active on {HOST}:{PORT}")
     print(f"Allowed Root: {ALLOWED_ROOT}")
-    print(f"Binary Allowlist (shell=False): {sorted(ALLOWED_BINARIES)}")
+    print(f"Binary Allowlist: {sorted(ALLOWED_BINARIES)}")
     server.serve_forever()
 
 

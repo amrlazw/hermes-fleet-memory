@@ -197,10 +197,12 @@ For operators who want their 24/7 cloud node (e.g. Telegram bot) to **execute li
 2. **Start Reverse WSTunnel:**
    - **Linux / macOS:** `client/start-tunnel.sh`
    - **Windows:** `client/start-tunnel.vbs` (runs completely silently at logon without prompt windows).
-3. **Unlocked Capabilities:**
+3. **Unlocked Capabilities (Bridge v2):**
    - `desktop_status`: Returns live GPU temperature, VRAM usage, and workstation heartbeat.
-   - `desktop_exec`: Executes safe, sandboxed shell commands remotely.
-   - `desktop_read_file`: Fetches authorized documents under user home directory.
+   - `desktop_exec`: Executes safe, sandboxed commands remotely.
+   - `desktop_read_file`: Fetches text documents under user home directory.
+   - `desktop_download_file`: High-speed native binary blob streaming (PDFs, images, archives) via `/download` with zero chunking overhead.
+   - `desktop_archive_folder`: One-shot remote directory zipping and auto-download via `/archive`.
    - `desktop_power`: Gracefully initiates remote shutdown, restart, or abort with customizable delay.
 
 ---

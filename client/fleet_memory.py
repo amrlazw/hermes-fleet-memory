@@ -525,6 +525,84 @@ if HAS_MCP and mcp:
             return {"status": "error", "message": f"Bridge communication error: {e}"}
 
     @mcp.tool(
+        name="desktop_download_file",
+        description="Download an authorized binary file (PDF, zip, doc) from remote workstation to a local path on the VPS."
+    )
+    def desktop_download_file(remote_path: str, local_destination: str = "") -> Dict[str, Any]:
+        """Stream and download an authorized file directly from the workstation."""
+        import json, urllib.request, urllib.error, urllib.parse, os
+        try:
+            url = f"http://127.0.0.1:{BRIDGE_PORT}/download?path=" + urllib.parse.quote(remote_path)
+            req = urllib.request.Request(
+                url,
+                headers={"Authorization": f"Bearer {FLEET_BRIDGE_KEY}"}
+            )
+            dest = local_destination.strip()
+            if not dest:
+                filename = os.path.basename(remote_path.replace("\\", "/"))
+                dest = os.path.expanduser(f"~/downloads/{filename}")
+            os.makedirs(os.path.dirname(os.path.abspath(dest)), exist_ok=True)
+
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                with open(dest, "wb") as f:
+                    while True:
+                        chunk = resp.read(64 * 1024)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+
+            return {
+                "status": "success",
+                "remote_path": remote_path,
+                "local_path": os.path.abspath(dest),
+                "size_bytes": os.path.getsize(dest)
+            }
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode("utf-8"))
+            except Exception:
+                return {"error": f"HTTP error {e.code}: {e.reason}"}
+        except Exception as e:
+            return {"status": "error", "message": f"Bridge communication error: {e}"}
+
+    @mcp.tool(
+        name="desktop_archive_folder",
+        description="Archive and zip an authorized directory on remote workstation, then stream-download it to the VPS."
+    )
+    def desktop_archive_folder(remote_dir: str, local_destination: str = "") -> Dict[str, Any]:
+        """Zip a remote directory on the workstation and download the resulting archive."""
+        import json, urllib.request, urllib.error, os
+        try:
+            payload = json.dumps({"path": remote_dir}).encode("utf-8")
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{BRIDGE_PORT}/archive",
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {FLEET_BRIDGE_KEY}",
+                    "Content-Type": "application/json"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+
+            if res.get("status") != "success":
+                return res
+
+            remote_archive = res.get("archive_path")
+            dest = local_destination.strip()
+            if not dest:
+                dest = os.path.expanduser(f"~/downloads/{os.path.basename(remote_archive)}")
+
+            return desktop_download_file(remote_archive, dest)
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode("utf-8"))
+            except Exception:
+                return {"error": f"HTTP error {e.code}: {e.reason}"}
+        except Exception as e:
+            return {"status": "error", "message": f"Bridge communication error: {e}"}
+
+    @mcp.tool(
         name="desktop_power",
         description="Manage remote workstation power: shutdown, restart, or cancel pending power actions."
     )
