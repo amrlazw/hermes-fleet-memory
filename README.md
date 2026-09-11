@@ -128,6 +128,27 @@ Developers operating multiple instances of [Hermes Agent](https://github.com/Nou
 
 ---
 
+## ⚡ Quickstart: The Interactive Fleet Wizard
+
+Instead of hand-writing `.env` files and configuring reverse proxy headers manually, use the **Fleet Onboarding Wizard**. It enforces the correct sequence (**Stage 1: Head Node -> Stage 2: Member Nodes -> Stage 3: AI Framework integration**):
+
+```bash
+git clone https://github.com/amrlazw/hermes-fleet-memory.git
+cd hermes-fleet-memory
+
+# Launch the interactive wizard
+python setup.py
+```
+
+The wizard will:
+1. **Detect OS & Environment:** Prompts you whether this machine is the **Cloud Hub (Head)** or a **Member Node (Home Rig / Work Laptop)**.
+2. **Auto-Generate Cryptographic Secrets:** Creates a secure 256-bit cluster key (`secrets.token_hex(32)`) with zero manual copy-pasting.
+3. **Configure Domain Firewalls:** Sets `FLEET_HARD_DOMAIN` (`personal`, `work`, or `shared`) based on your node role.
+4. **Generate AI Configs:** Outputs drop-in JSON/YAML blocks for **Hermes Agent**, **Claude Desktop**, and **Cursor**.
+5. **Background Persistence:** Generates Windows silent background launchers (`start-tunnel.vbs`) or Linux systemd service units automatically.
+
+---
+
 ## Deployment Models
 
 Choose the architecture that matches your setup:
