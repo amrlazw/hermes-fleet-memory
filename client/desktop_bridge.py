@@ -407,7 +407,7 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
             action = req_data.get("action", "shutdown").lower().strip()
             delay = int(req_data.get("delay", 60))
 
-            if action not in ["shutdown", "restart", "cancel"]:
+            if action not in ["shutdown", "restart", "sleep", "cancel"]:
                 self._send_json(400, {"error": "Action must be 'shutdown', 'restart', or 'cancel'"})
                 return
 
@@ -417,6 +417,9 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
                         cmd = ["shutdown.exe", "/s", "/t", str(delay), "/c", "Fleet Remote Shutdown Initiated"]
                     elif action == "restart":
                         cmd = ["shutdown.exe", "/r", "/t", str(delay), "/c", "Fleet Remote Restart Initiated"]
+                    elif action == "sleep":
+                        # rundll32.exe powrprof.dll,SetSuspendState 0,1,0 puts Windows to Sleep
+                        cmd = ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"]
                     elif action == "cancel":
                         cmd = ["shutdown.exe", "/a"]
                 else:

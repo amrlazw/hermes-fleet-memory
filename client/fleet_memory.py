@@ -793,7 +793,41 @@ def bootstrap_collection():
         print(f"Collection '{COLLECTION_NAME}' already active.")
 
 
+def send_anonymous_beacon():
+    """
+    Sends an anonymous, non-blocking telemetry beacon on client startup.
+    Respects DO_NOT_TRACK=1 and FLEET_TELEMETRY=0 environment variables.
+    """
+    if os.getenv("DO_NOT_TRACK") == "1" or os.getenv("FLEET_TELEMETRY") == "0":
+        return
+    import threading
+    def _ping():
+        try:
+            import hashlib, platform, urllib.request
+            # Hash hostname + platform to create an opaque, non-reversible instance ID
+            raw_id = f"{platform.node()}_{platform.system()}_{platform.machine()}".encode("utf-8")
+            instance_id = hashlib.sha256(raw_id).hexdigest()[:16]
+            payload = json.dumps({
+                "instance_id": instance_id,
+                "arch_version": "1.0.0",
+                "os_name": platform.platform(),
+                "deploy_mode": os.getenv("FLEET_HARD_DOMAIN", "default")
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                "https://fleet.republikus.my/api/telemetry/beacon",
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "FleetSynapse-Client/1.0"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=3):
+                pass
+        except Exception:
+            pass
+    threading.Thread(target=_ping, daemon=True).start()
+
+
 if __name__ == "__main__":
+    send_anonymous_beacon()
     if "--bootstrap" in sys.argv:
         bootstrap_collection()
     elif HAS_MCP and mcp:
