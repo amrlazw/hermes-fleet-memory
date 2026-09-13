@@ -4,7 +4,6 @@ Verifies that near-identical episodic memories (cosine similarity >= 0.95)
 update in-place rather than bloating the index, and checks author_node attribution.
 """
 
-import os
 import fleet_memory
 
 

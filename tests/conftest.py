@@ -4,10 +4,10 @@ Provides mock vector embeddings and mock Qdrant storage without network dependen
 """
 
 import sys
-import os
-import pytest
-from unittest.mock import MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 
 # Add repo root to path
 REPO_ROOT = Path(__file__).resolve().parent.parent

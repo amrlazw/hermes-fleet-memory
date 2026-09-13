@@ -5,19 +5,20 @@ Zero-dependency, stdlib-only HTTP bridge allowing remote nodes to query telemetr
 execute safe allowlisted commands, download binary blobs, and archive directories with defense-in-depth security.
 """
 
-import os
-import sys
-import re
-import json
 import hmac
-import time
+import json
+import os
+import re
 import shlex
-import zipfile
-import tempfile
-import urllib.parse
 import subprocess
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import sys
+import tempfile
+import time
+import urllib.parse
+import zipfile
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+
 
 # Pure Python standard-library .env loader (zero external dependencies)
 def load_env_file(path: str):

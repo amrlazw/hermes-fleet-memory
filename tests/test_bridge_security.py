@@ -4,9 +4,8 @@ Verifies constant-time HMAC bearer authentication, parameterized command allowli
 shell=False binary validation, path jail traversal prevention, and sensitive file protection.
 """
 
-import pytest
-from pathlib import Path
 import desktop_bridge
+import pytest
 
 
 def test_constant_time_hmac_auth(monkeypatch):

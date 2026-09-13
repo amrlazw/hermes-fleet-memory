@@ -3,9 +3,8 @@ Episodic Memory Cleaner Tests:
 Verifies JSONL archival dump and hard physical eviction from Qdrant HNSW RAM index.
 """
 
-import sys
 import json
-import pytest
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 

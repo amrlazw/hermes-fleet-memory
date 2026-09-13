@@ -6,9 +6,8 @@ import uuid
 from enum import Enum
 from typing import Any, Dict
 
-from pydantic import BaseModel, Field, field_validator
-
 from config import get_config
+from pydantic import BaseModel, Field, field_validator
 
 
 class TaskAction(str, Enum):

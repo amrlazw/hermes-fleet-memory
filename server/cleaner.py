@@ -5,11 +5,11 @@ Runs periodically (e.g. weekly via cron) on the central server to physically evi
 expired episodic vectors from Qdrant HNSW RAM index and archive them to disk.
 """
 
-import os
 import json
+import os
 import time
-import sys
 from pathlib import Path
+
 try:
     from qdrant_client import QdrantClient
     from qdrant_client.http import models
@@ -79,7 +79,7 @@ def clean_expired_memories():
         return
 
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Found {len(expired_points)} expired episodic memories.")
-    
+
     # 1. Archive to disk
     archive_points(expired_points)
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Archived {len(expired_points)} records to {ARCHIVE_FILE}")

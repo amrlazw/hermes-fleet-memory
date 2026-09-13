@@ -5,12 +5,13 @@ Universal FastMCP stdio server providing zero-bloat distributed vector memory,
 hardware-enforced domain firewalls, and NAT-traversing execution mesh for multi-instance Hermes fleets.
 """
 
+import json
 import os
 import sys
-import uuid
 import time
+import uuid
 import warnings
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 # Silence warnings to protect stdio JSON-RPC stream
 warnings.filterwarnings("ignore")
@@ -34,9 +35,9 @@ except Exception:
     pass
 
 try:
+    from fastembed import TextEmbedding
     from qdrant_client import QdrantClient
     from qdrant_client.http import models
-    from fastembed import TextEmbedding
 except ImportError as e:
     sys.stderr.write(f"Warning: Dependencies missing: {e}\n")
     class DummyModels:
@@ -121,7 +122,7 @@ def get_embedder():
 def validate_domain_access(requested_domain: Optional[str] = None, is_write: bool = False) -> List[str]:
     """
     Hardware-Enforced Domain Firewall (Paradigm E++ Rule).
-    
+
     Security Contract:
     - ENFORCED_DOMAIN == 'all': Unrestricted root (Cloud Sentinel). Can query or store in any domain.
     - ENFORCED_DOMAIN == 'work': Partition locked to Enterprise Work. Can only query/store 'work' or 'shared'.
@@ -167,7 +168,7 @@ def fleet_memory_search(
     """
     Search fleet memory on-demand via vector similarity.
     Query domain is hardware-enforced by host OS configuration.
-    
+
     Parameters:
     - query: Natural language search string.
     - limit: Maximum number of points to retrieve.
@@ -263,7 +264,7 @@ def fleet_memory_store(
     """
     Store or update an authoritative card in fleet memory.
     Enforces Last-Write-Wins (LWW) conflict resolution and deterministic UUID5 slot overwrites.
-    
+
     Parameters:
     - text: Markdown content or factual statement to store.
     - client_id: Component or subsystem identifier (e.g., "hardware", "payment_gateway").
@@ -286,7 +287,7 @@ def fleet_memory_store(
     if slot_name and client_id:
         point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{effective_domain}:{client_id}:{slot_name}"))
         is_pinned = True
-        
+
         # Concurrency check: retrieve existing point payload if present
         try:
             client = get_client()
@@ -449,7 +450,8 @@ if HAS_MCP and mcp:
     )
     def desktop_status() -> Dict[str, Any]:
         """Check if remote workstation bridge is online and return live GPU telemetry."""
-        import json, urllib.request
+        import json
+        import urllib.request
         try:
             req = urllib.request.Request(
                 f"http://127.0.0.1:{BRIDGE_PORT}/health",
@@ -471,7 +473,9 @@ if HAS_MCP and mcp:
     )
     def desktop_exec(command: str = "", action: str = "") -> Dict[str, Any]:
         """Execute a safe command or pre-declared action on the workstation."""
-        import json, urllib.request, urllib.error
+        import json
+        import urllib.error
+        import urllib.request
         try:
             payload = {}
             if action:
@@ -503,7 +507,9 @@ if HAS_MCP and mcp:
     )
     def desktop_read_file(path: str) -> Dict[str, Any]:
         """Read an authorized document from the workstation."""
-        import json, urllib.request, urllib.error
+        import json
+        import urllib.error
+        import urllib.request
         try:
             data = json.dumps({"path": path}).encode("utf-8")
             req = urllib.request.Request(
@@ -530,7 +536,11 @@ if HAS_MCP and mcp:
     )
     def desktop_download_file(remote_path: str, local_destination: str = "") -> Dict[str, Any]:
         """Stream and download an authorized file directly from the workstation."""
-        import json, urllib.request, urllib.error, urllib.parse, os
+        import json
+        import os
+        import urllib.error
+        import urllib.parse
+        import urllib.request
         try:
             url = f"http://127.0.0.1:{BRIDGE_PORT}/download?path=" + urllib.parse.quote(remote_path)
             req = urllib.request.Request(
@@ -571,7 +581,10 @@ if HAS_MCP and mcp:
     )
     def desktop_archive_folder(remote_dir: str, local_destination: str = "") -> Dict[str, Any]:
         """Zip a remote directory on the workstation and download the resulting archive."""
-        import json, urllib.request, urllib.error, os
+        import json
+        import os
+        import urllib.error
+        import urllib.request
         try:
             payload = json.dumps({"path": remote_dir}).encode("utf-8")
             req = urllib.request.Request(
@@ -608,7 +621,9 @@ if HAS_MCP and mcp:
     )
     def desktop_power(action: str = "shutdown", delay_seconds: int = 60) -> Dict[str, Any]:
         """Manage workstation power state: 'shutdown', 'restart', or 'cancel'."""
-        import json, urllib.request, urllib.error
+        import json
+        import urllib.error
+        import urllib.request
         try:
             data = json.dumps({"action": action, "delay": delay_seconds}).encode("utf-8")
             req = urllib.request.Request(
@@ -646,13 +661,15 @@ if HAS_MCP and mcp:
         - params: Parameters dict (e.g. {'message': 'Hello from Levi'}).
         - priority: 'low', 'normal', or 'critical'.
         """
-        import json, urllib.request, urllib.error
+        import json
+        import urllib.error
+        import urllib.request
         if not FLEET_KEY:
             return {
                 "status": "error",
                 "message": "Missing FLEET_KEY. Configure FLEET_KEY in environment or ~/.hermes/fleet_auth.json."
             }
-        
+
         idempotency_key = f"mcp_{action}_{int(time.time() * 1000)}"
         payload = {
             "target": target_node.lower(),
@@ -661,7 +678,7 @@ if HAS_MCP and mcp:
             "params": params or {},
             "idempotency_key": idempotency_key
         }
-        
+
         url = f"{FLEET_TASKS_URL}/api/fleet/tasks"
         try:
             data = json.dumps(payload).encode("utf-8")
@@ -701,13 +718,15 @@ if HAS_MCP and mcp:
         """
         Check the status and verify Ed25519 completion receipt for a delegated task.
         """
-        import json, urllib.request, urllib.error
+        import json
+        import urllib.error
+        import urllib.request
         if not FLEET_KEY:
             return {
                 "status": "error",
                 "message": "Missing FLEET_KEY. Configure FLEET_KEY in environment or ~/.hermes/fleet_auth.json."
             }
-            
+
         url = f"{FLEET_TASKS_URL}/api/fleet/tasks/{task_id}"
         try:
             req = urllib.request.Request(
@@ -716,7 +735,7 @@ if HAS_MCP and mcp:
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 task_data = json.loads(resp.read().decode("utf-8"))
-                
+
             verified = None
             if verify_receipt and task_data.get("status") == "completed" and task_data.get("ed25519_signature"):
                 try:
@@ -737,7 +756,7 @@ if HAS_MCP and mcp:
                 except Exception as e:
                     verified = False
                     task_data["verification_error"] = str(e)
-                    
+
             return {
                 "status": task_data.get("status"),
                 "task_id": task_data.get("task_id"),
@@ -803,7 +822,9 @@ def send_anonymous_beacon():
     import threading
     def _ping():
         try:
-            import hashlib, platform, urllib.request
+            import hashlib
+            import platform
+            import urllib.request
             # Hash hostname + platform to create an opaque, non-reversible instance ID
             raw_id = f"{platform.node()}_{platform.system()}_{platform.machine()}".encode("utf-8")
             instance_id = hashlib.sha256(raw_id).hexdigest()[:16]

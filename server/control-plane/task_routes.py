@@ -14,10 +14,8 @@ import secrets
 import sqlite3
 import time
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import ValidationError
-
 from config import get_config
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from init_db import init_db
 from schema import TaskRecord, TaskStatus, TaskSubmission
 

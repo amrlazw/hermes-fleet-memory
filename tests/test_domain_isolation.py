@@ -3,8 +3,8 @@ Security & Boundary Enforcement Tests:
 Verifies hardware-enforced domain firewall rules across personal, work, and cloud partitions.
 """
 
-import pytest
 import fleet_memory
+import pytest
 
 
 def test_personal_node_allowed_domains(monkeypatch):

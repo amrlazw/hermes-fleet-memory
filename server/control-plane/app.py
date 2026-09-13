@@ -11,13 +11,12 @@ from __future__ import annotations
 import json
 import sqlite3
 
+import task_routes
+from config import get_config
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
-
-from config import get_config
 from init_db import init_db
 from keys import ensure_keys
-import task_routes
 
 _cfg = get_config()
 

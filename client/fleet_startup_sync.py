@@ -226,7 +226,7 @@ def run_sync():
     # 1. Executive Briefing to Amirul via Telegram BEFORE execution begins
     briefing_lines = [
         "👑 *WINSTON — FLEET INGRESS BRIEFING*",
-        f"📍 *Node:* `Winston (RTX 3070 Ti Rig)` | *Status:* `ONLINE`",
+        "📍 *Node:* `Winston (RTX 3070 Ti Rig)` | *Status:* `ONLINE`",
         f"📋 *Pending Queue:* `{len(pending)} task(s) detected`",
         "",
         "*Incoming Tasks to Execute:*",

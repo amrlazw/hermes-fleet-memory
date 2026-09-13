@@ -59,8 +59,8 @@ def main() -> int:
 
     # ------------------------------------------------------- 2. API + auth
     print("\n[2] API surface and bearer auth")
-    from fastapi.testclient import TestClient
     import app as app_module
+    from fastapi.testclient import TestClient
 
     client = TestClient(app_module.app)
     alpha_token = next(t for t, n in cfg.node_keys.items() if n == "alpha")
