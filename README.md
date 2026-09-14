@@ -286,7 +286,8 @@ For operators who want their 24/7 cloud node (e.g. Telegram bot) to **execute li
 2. **Start Reverse WSTunnel:**
    - **Linux / macOS:** `client/start-tunnel.sh`
    - **Windows:** `client/start-tunnel.vbs` (runs completely silently at logon without prompt windows).
-3. **Unlocked Capabilities (Bridge v2):**
+3. **Unlocked Capabilities (Bridge v2 & Knowledge Graph):**
+   - `fleet_graph_search`: Traverses multi-hop Knowledge Graph relationships across entities (`[[Entity]]`) without dedicated graph database overhead.
    - `desktop_status`: Returns live GPU temperature, VRAM usage, and workstation heartbeat.
    - `desktop_exec`: Executes safe, sandboxed commands remotely.
    - `desktop_read_file`: Fetches text documents under user home directory.
