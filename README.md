@@ -21,6 +21,53 @@
 
 ---
 
+### ⚡ 60-Second Quickstart (Local & Standalone Mode)
+
+Want to try Hermes Fleet Memory without setting up a remote VPS, Qdrant cluster, or reverse tunnels? Run in **Standalone Mode**:
+
+```bash
+# 1. Clone repository
+git clone https://github.com/amrlazw/hermes-fleet-memory.git
+cd hermes-fleet-memory
+
+# 2. Run automated wizard in Standalone Mode
+python setup.py --role standalone --non-interactive
+
+# 3. Test local vector search & memory recall immediately
+python client/fleet_memory.py --test
+```
+
+#### Connect to your AI Client in 1 Step:
+
+**Hermes Agent (`~/.hermes/config.yaml`):**
+```yaml
+mcp_servers:
+  fleet-memory:
+    command: python3
+    args:
+      - /absolute/path/to/hermes-fleet-memory/client/fleet_memory.py
+    env:
+      FLEET_HARD_DOMAIN: all
+```
+
+**Claude Desktop (`claude_desktop_config.json`):**
+```json
+{
+  "mcpServers": {
+    "fleet-memory": {
+      "command": "python3",
+      "args": ["/absolute/path/to/hermes-fleet-memory/client/fleet_memory.py"],
+      "env": {
+        "FLEET_HARD_DOMAIN": "all"
+      }
+    }
+  }
+}
+```
+*You now have all 12 FastMCP tools active for on-demand vector memory retrieval and execution directly inside your AI agent!*
+
+---
+
 ### What is Paradigm E++?
 
 **Paradigm E++** (*Epistemic State, Vector Embeddings, Distributed Execution Mesh*) is the formal architectural specification underlying Hermes Fleet Synapse:
