@@ -14,6 +14,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 class TestMCPToolsCoverage(unittest.TestCase):
 
     def setUp(self):
+        import fleet_memory
+        if not getattr(fleet_memory, "HAS_MCP", False):
+            self.skipTest("FastMCP is not installed in the test environment")
         os.environ["FLEET_HARD_DOMAIN"] = "all"
         os.environ["FLEET_KEY"] = "test_key"
         os.environ["FLEET_TASKS_URL"] = "http://127.0.0.1:8000"
