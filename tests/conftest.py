@@ -73,6 +73,15 @@ class MockQdrantStorage:
         m.collections = [col]
         return m
 
+    def scroll(self, collection_name, scroll_filter=None, limit=10, with_payload=True):
+        items = []
+        for pid, data in self.points.items():
+            m = MagicMock()
+            m.id = pid
+            m.payload = data["payload"]
+            items.append(m)
+        return items[:limit], None
+
 
 @pytest.fixture(autouse=True)
 def mock_fleet_memory_engine(monkeypatch):

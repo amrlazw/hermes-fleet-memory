@@ -13,6 +13,14 @@ import uuid
 import warnings
 from typing import Any, Dict, List, Optional
 
+try:
+    from knowledge_graph import extract_entities_and_relations
+except ImportError:
+    try:
+        from client.knowledge_graph import extract_entities_and_relations
+    except ImportError:
+        def extract_entities_and_relations(t): return [], []
+
 # Silence warnings to protect stdio JSON-RPC stream
 warnings.filterwarnings("ignore")
 
@@ -237,6 +245,8 @@ def fleet_memory_search(
                 "page": payload.get("page", None),
                 "pinned": payload.get("pinned", False),
                 "revision": payload.get("revision", 1),
+                "entities": payload.get("entities", []),
+                "relations": payload.get("relations", []),
                 "created_at": payload.get("created_at", 0),
                 "updated_at": payload.get("updated_at", payload.get("created_at", 0))
             })
@@ -254,6 +264,95 @@ def fleet_memory_search(
             "pinned": True,
             "created_at": int(time.time())
         }]
+
+
+def fleet_graph_query(
+    entity: str,
+    target_domain: Optional[str] = None,
+    limit: int = 5
+) -> Dict[str, Any]:
+    """
+    Traverse Knowledge Graph relationships for a specific entity or concept across authorized domains.
+    Extracts connected nodes, relations, and source episodic/slot memories.
+
+    Parameters:
+    - entity: Name or identifier of the entity/node to explore (e.g. 'Qdrant', 'FastMCP', 'payment_gateway').
+    - target_domain: 'personal', 'work', 'shared', or 'all'.
+    - limit: Maximum related memories to inspect.
+    """
+    domains_to_search = validate_domain_access(target_domain, is_write=False)
+    ent_clean = entity.strip().lower()
+
+    try:
+        client = get_client()
+        must_conditions = [
+            models.FieldCondition(key="status", match=models.MatchValue(value="active"))
+        ]
+        if domains_to_search:
+            if len(domains_to_search) == 1:
+                must_conditions.append(models.FieldCondition(key="domain", match=models.MatchValue(value=domains_to_search[0])))
+            else:
+                must_conditions.append(models.FieldCondition(key="domain", match=models.MatchAny(any=domains_to_search)))
+
+        query_filter = models.Filter(must=must_conditions)
+
+        # Retrieve points matching the domain filter to traverse entities & relations
+        scroll_res = client.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=query_filter,
+            limit=50,
+            with_payload=True
+        )
+        points, _ = scroll_res if isinstance(scroll_res, tuple) else (getattr(scroll_res, "points", []), None)
+
+        connected_relations = []
+        related_entities = set()
+        matched_memories = []
+
+        for p in points:
+            payload = p.payload or {}
+            ents = [e.lower() for e in payload.get("entities", [])]
+            rels = payload.get("relations", [])
+            text = payload.get("text", "")
+
+            # Check if target entity appears in entities list, relations, or text
+            entity_hit = (ent_clean in ents) or (ent_clean in text.lower())
+
+            for r in rels:
+                src = str(r.get("source", "")).lower()
+                tgt = str(r.get("target", "")).lower()
+                if ent_clean in (src, tgt):
+                    entity_hit = True
+                    connected_relations.append(r)
+                    related_entities.add(r.get("target") if src == ent_clean else r.get("source"))
+
+            if entity_hit:
+                matched_memories.append({
+                    "id": str(p.id),
+                    "domain": payload.get("domain"),
+                    "client_id": payload.get("client_id"),
+                    "slot_name": payload.get("slot_name"),
+                    "text": text,
+                    "entities": payload.get("entities", [])
+                })
+                if len(matched_memories) >= limit:
+                    break
+
+        return {
+            "entity": entity,
+            "connected_entities": sorted(list(related_entities)),
+            "relations": connected_relations[:20],
+            "matched_memories_count": len(matched_memories),
+            "memories": matched_memories
+        }
+    except Exception as e:
+        return {
+            "entity": entity,
+            "connected_entities": [],
+            "relations": [],
+            "matched_memories_count": 0,
+            "error": str(e)
+        }
 
 
 def fleet_memory_store(
@@ -373,7 +472,9 @@ def fleet_memory_store(
         raw_vec = list(embedder.embed([text]))[0]
         vector = raw_vec.tolist() if hasattr(raw_vec, "tolist") else list(raw_vec)
 
-        node_name = os.getenv("FLEET_NODE_NAME") or os.getenv("HERMES_PROFILE") or ("winston" if sys.platform == "win32" else "chester")
+        node_name = os.getenv("FLEET_NODE_NAME") or os.getenv("HERMES_PROFILE") or ("node_worker" if sys.platform == "win32" else "cloud_hub")
+
+        entities, relations = extract_entities_and_relations(text)
 
         payload = {
             "text": text,
@@ -384,6 +485,8 @@ def fleet_memory_store(
             "status": "active",
             "pinned": is_pinned,
             "revision": revision,
+            "entities": entities,
+            "relations": relations,
             "author_node": node_name,
             "author_profile": os.getenv("HERMES_PROFILE", "default"),
             "created_at": int(now),
@@ -453,6 +556,12 @@ if HAS_MCP and mcp:
         description="Store or update architectural notes in fleet synapse. Domain is host-enforced.",
         annotations=_make_annotations(read_only=False, destructive=True, idempotent=True, open_world=False)
     )(fleet_memory_store)
+
+    fleet_graph_search = mcp.tool(
+        name="fleet_graph_search",
+        description="Traverse knowledge graph relations and entity connections in fleet memory across authorized domains.",
+        annotations=_make_annotations(read_only=True, destructive=False, idempotent=True, open_world=False)
+    )(fleet_graph_query)
 
     # Backwards compatibility aliases
     mcp.tool(
@@ -832,7 +941,7 @@ def bootstrap_collection():
                 ef_construct=100
             )
         )
-        for field in ["domain", "client_id", "status", "memory_type", "pinned", "revision"]:
+        for field in ["domain", "client_id", "status", "memory_type", "pinned", "revision", "entities"]:
             client.create_payload_index(
                 collection_name=COLLECTION_NAME,
                 field_name=field,

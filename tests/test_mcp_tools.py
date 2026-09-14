@@ -109,6 +109,26 @@ class TestMCPToolsCoverage(unittest.TestCase):
         self.assertEqual(res.get("status"), "completed")
 
     @patch("fleet_memory.get_client")
+    def test_fleet_graph_search(self, mock_client):
+        import fleet_memory
+        mock_point = MagicMock()
+        mock_point.id = "p-1"
+        mock_point.payload = {
+            "domain": "shared",
+            "client_id": "test",
+            "slot_name": "graph_test",
+            "text": "FastMCP communicates with Qdrant vector database",
+            "entities": ["FastMCP", "Qdrant"],
+            "relations": [{"source": "FastMCP", "relation": "communicates_with", "target": "Qdrant"}]
+        }
+        mock_client.return_value.scroll.return_value = ([mock_point], None)
+
+        res = fleet_memory.fleet_graph_query(entity="Qdrant")
+        self.assertEqual(res["entity"], "Qdrant")
+        self.assertIn("FastMCP", res["connected_entities"])
+        self.assertEqual(res["matched_memories_count"], 1)
+
+    @patch("fleet_memory.get_client")
     @patch("fleet_memory.get_embedder")
     def test_fleet_synapse_search(self, mock_get_embedder, mock_client):
         import fleet_memory
