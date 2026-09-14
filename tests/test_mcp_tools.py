@@ -1,10 +1,10 @@
 """
 Unit tests for all FastMCP tool functions to satisfy M8ven and OpenAI directory test coverage.
 """
+import os
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
-import sys
-import os
 
 # Ensure client module can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
