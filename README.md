@@ -209,11 +209,11 @@ python setup.py --role work --domain work --node-name work-laptop --cluster-secr
 ```
 
 The wizard will:
-1. **Detect OS & Environment:** Prompts you whether this machine is the **Cloud Hub (Head)** or a **Member Node (Home Rig / Work Laptop)**.
-2. **Auto-Generate Cryptographic Secrets:** Creates a secure 256-bit cluster key (`secrets.token_hex(32)`) with zero manual copy-pasting.
+1. **Discover Topology Scale:** Asks whether you have **2 Nodes (Home PC + Work Laptop)** using $0 Qdrant Cloud (zero VPS needed), a **3+ Node Power Fleet** (Self-hosted Cloud VPS Hub), or a **Single Machine**.
+2. **Auto-Generate Cryptographic Secrets:** Creates a secure 256-bit cluster key (`secrets.token_hex(32)`) or seamlessly configures your Qdrant Cloud endpoint.
 3. **Configure Domain Firewalls:** Sets `FLEET_HARD_DOMAIN` (`personal`, `work`, or `shared`) based on your node role.
 4. **Generate AI Configs:** Outputs drop-in JSON/YAML blocks for **Hermes Agent**, **Claude Desktop**, and **Cursor**.
-5. **Background Persistence:** Generates Windows silent background launchers (`start-tunnel.vbs`) or Linux systemd service units automatically.
+5. **Zero-Friction Persistence:** Prepares Windows background launchers (`start-tunnel.vbs`) for self-hosted nodes, or zero daemons for cloud mode.
 
 ---
 

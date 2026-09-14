@@ -278,22 +278,49 @@ def main():
 
     banner()
 
-    print(f"{YELLOW}{BOLD}Architecture Sequence Rule:{RESET}")
-    print(f"{DIM}1. [Hub] First deploy the Cloud Hub (Central Vector DB & WSTunnel Server).")
-    print(f"2. [Nodes] Then connect Member Nodes (Home PC, Laptop) linking back to the Hub.{RESET}\n")
-    print("─" * 65 + "\n")
-
-    # Step 1: Topology Role
-    role = prompt_choice(
-        "What type of node are you setting up on this machine?",
+    # Stage 0: Fleet Scale Assessment (How many nodes?)
+    print(f"{CYAN}{BOLD}=== [Topology Discovery] ==={RESET}")
+    fleet_size = prompt_choice(
+        "How many computers / nodes do you want to link into your memory fleet?",
         [
-            ("hub", "Head Node (Central Cloud VPS / Qdrant Brain + WSTunnel Ingress)"),
-            ("personal", "Personal Node (Home PC / Gaming Rig / GPU Host with Execution Bridge)"),
-            ("work", "Work Node (Corporate Laptop / Office PC / Enterprise Client)"),
-            ("standalone", "Local Demo Mode (Single-machine local Qdrant, zero tunnels)")
+            ("pair", "2 Nodes (Home PC + Work Laptop) — [Recommended: No VPS needed, $0 Qdrant Cloud]"),
+            ("mesh", "3+ Nodes (Cloud VPS Hub + Home Rig + Work Laptop) — [Self-Hosted Power Mesh]"),
+            ("standalone", "1 Machine Only (Standalone local testing / Single device memory)")
         ],
         default_idx=0
     )
+
+    if fleet_size == "standalone":
+        role = "standalone"
+    elif fleet_size == "pair":
+        print(f"\n{GREEN}✔ Selected:{RESET} {BOLD}2-Node Cloud Sync (No VPS needed){RESET}")
+        print(f"{DIM}Tip: Uses Qdrant Cloud Free Tier (Permanent $0, 1GB RAM = ~500k memory vectors).")
+        print(f"If you don't have one, grab your free URL & API Key in 60s at: https://cloud.qdrant.io/{RESET}\n")
+
+        node_type = prompt_choice(
+            "Which machine is THIS computer?",
+            [
+                ("personal", "Personal Machine (Home PC / Gaming Rig / Personal Mac)"),
+                ("work", "Work Machine (Corporate Laptop / Office PC)")
+            ],
+            default_idx=0
+        )
+        role = "personal" if node_type == "personal" else "work"
+    else:
+        print(f"\n{YELLOW}{BOLD}Architecture Sequence Rule:{RESET}")
+        print(f"{DIM}1. [Hub] First deploy the Cloud Hub (Central Vector DB & WSTunnel Server).")
+        print(f"2. [Nodes] Then connect Member Nodes (Home PC, Laptop) linking back to the Hub.{RESET}\n")
+        print("─" * 65 + "\n")
+
+        role = prompt_choice(
+            "What type of node are you setting up on this machine?",
+            [
+                ("hub", "Head Node (Central Cloud VPS / Qdrant Brain + WSTunnel Ingress)"),
+                ("personal", "Personal Node (Home PC / Gaming Rig / GPU Host with Execution Bridge)"),
+                ("work", "Work Node (Corporate Laptop / Office PC / Enterprise Client)")
+            ],
+            default_idx=0
+        )
 
     # Normalize role alias
     if role in ["compute", "personal"]:
@@ -301,7 +328,7 @@ def main():
     elif role in ["client", "work"]:
         role = "edge"
 
-    print(f"\n{GREEN}✔ Selected Role:{RESET} {BOLD}{role.upper()}{RESET}\n")
+    print(f"\n{GREEN}✔ Target Node Role:{RESET} {BOLD}{role.upper()}{RESET}\n")
 
     # Flow A: Cloud Hub Setup
     if role == "hub":
@@ -349,9 +376,17 @@ FLEET_HARD_DOMAIN=all
         return
 
     # Flow B: Member Node Setup (Desktop or Edge)
-    print(f"{CYAN}{BOLD}=== [Stage 2: Member Node Attachment] ==={RESET}")
-    hub_url = prompt_input("Enter your Hub WebSocket Ingress URL", "wss://brain.example.com/tunnel")
-    cluster_secret = prompt_input("Enter the Hub 256-bit Cluster Secret (from Hub setup)")
+    print(f"{CYAN}{BOLD}=== [Stage 2: Node Configuration] ==={RESET}")
+
+    qdrant_url = ""
+    if fleet_size == "pair":
+        print(f"\n{CYAN}--- Configuring Managed Cloud Sync (Qdrant Cloud) ---{RESET}")
+        qdrant_url = prompt_input("Enter your Qdrant Cloud URL (e.g. https://xxxx.cloud.qdrant.io:6333)", "https://xxxx.cloud.qdrant.io:6333")
+        cluster_secret = prompt_input("Enter your Qdrant Cloud API Key")
+        hub_url = ""
+    else:
+        hub_url = prompt_input("Enter your Hub WebSocket Ingress URL", "wss://brain.example.com/tunnel")
+        cluster_secret = prompt_input("Enter the Hub 256-bit Cluster Secret (from Hub setup)")
 
     if not cluster_secret:
         cluster_secret = secrets.token_hex(32)
@@ -372,8 +407,24 @@ FLEET_HARD_DOMAIN=all
         "personal-pc" if role == "desktop" else "work-laptop"
     )
 
-    # Generate Node .env
-    node_env = f"""# Hermes Fleet Memory — Member Node Configuration
+    # Parse host/url for Qdrant Cloud vs Self-Hosted Hub
+    if fleet_size == "pair" and qdrant_url.startswith("http"):
+        clean_url = qdrant_url.replace("https://", "").replace("http://", "").rstrip("/")
+        if ":" in clean_url:
+            q_host, q_port = clean_url.split(":")
+        else:
+            q_host, q_port = clean_url, "6333"
+        use_https = "true" if qdrant_url.startswith("https") else "false"
+        node_env = f"""# Hermes Fleet Memory — 2-Node Cloud Configuration (Qdrant Cloud)
+FLEET_HARD_DOMAIN={domain}
+FLEET_CLIENT_ID={client_id}
+FLEET_QDRANT_HOST={q_host}
+FLEET_QDRANT_PORT={q_port}
+FLEET_QDRANT_KEY={cluster_secret}
+FLEET_QDRANT_HTTPS={use_https}
+"""
+    else:
+        node_env = f"""# Hermes Fleet Memory — Member Node Configuration
 FLEET_HARD_DOMAIN={domain}
 FLEET_CLIENT_ID={client_id}
 FLEET_QDRANT_HOST=127.0.0.1
@@ -440,16 +491,22 @@ FLEET_SERVER_HOST={hub_url.replace('wss://', '').replace('/tunnel', '')}
 """)
 
     # OS-specific launcher assistance
-    print(f"{CYAN}{BOLD}=== [Stage 4: Service Persistence] ==={RESET}")
-    is_windows = platform.system().lower() == "windows"
-    if is_windows:
-        print(f"{BOLD}Windows Background Launchers Ready:{RESET}")
-        print("  • Start tunnel & bridge silently at boot:")
-        print(f"    Double-click or add to Startup: {CYAN}client\\start-tunnel.vbs{RESET}")
+    if fleet_size == "pair":
+        print(f"{CYAN}{BOLD}=== [Stage 4: Zero-DevOps Status] ==={RESET}")
+        print(f"  • {GREEN}No local daemon or tunnel needed!{RESET}")
+        print("  • Both machines connect directly to your encrypted Qdrant Cloud cluster.")
+        print(f"  • When setting up your second machine, run {BOLD}python setup.py{RESET} and choose the same 2-node option.")
     else:
-        print(f"{BOLD}Linux/macOS Background Launchers Ready:{RESET}")
-        print("  • Start tunnel loop with auto-reconnect:")
-        print(f"    {CYAN}bash client/start-tunnel.sh{RESET}")
+        print(f"{CYAN}{BOLD}=== [Stage 4: Service Persistence] ==={RESET}")
+        is_windows = platform.system().lower() == "windows"
+        if is_windows:
+            print(f"{BOLD}Windows Background Launchers Ready:{RESET}")
+            print("  • Start tunnel & bridge silently at boot:")
+            print(f"    Double-click or add to Startup: {CYAN}client\\start-tunnel.vbs{RESET}")
+        else:
+            print(f"{BOLD}Linux/macOS Background Launchers Ready:{RESET}")
+            print("  • Start tunnel loop with auto-reconnect:")
+            print(f"    {CYAN}bash client/start-tunnel.sh{RESET}")
 
     print("\n" + "═" * 65)
     print(f" {GREEN}{BOLD}🎉 NODE PROVISIONING COMPLETE!{RESET}")
