@@ -9,6 +9,7 @@
   <a href="https://m8ven.ai/mcp/amrlazw-hermes-fleet-memory-nnsvq2"><img src="https://m8ven.ai/badge/mcp/amrlazw-hermes-fleet-memory-nnsvq2?variant=verified" alt="M8ven Verified"></a>
   <a href="https://github.com/amrlazw/hermes-fleet-memory/actions"><img src="https://img.shields.io/badge/CI_BUILD-PASSING-059669?style=flat-square&logo=githubactions&logoColor=white&labelColor=111827" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/LICENSE-MIT-3b82f6?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=111827" alt="License"></a>
+  <a href="PRIVACY.md"><img src="https://img.shields.io/badge/PRIVACY-POLICY-10b981?style=flat-square&logo=shield&logoColor=white&labelColor=111827" alt="Privacy Policy"></a>
   <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/FASTMCP-2.X_READY-10b981?style=flat-square&logo=anthropic&logoColor=white&labelColor=111827" alt="FastMCP"></a>
   <a href="https://qdrant.tech/"><img src="https://img.shields.io/badge/VECTOR_DB-QDRANT_INT8-ef4444?style=flat-square&logo=qdrant&logoColor=white&labelColor=111827" alt="Qdrant"></a>
   <a href="#"><img src="https://img.shields.io/badge/PROMPT_OVERHEAD-0_TOKENS-06b6d4?style=flat-square&logo=speedtest&logoColor=white&labelColor=111827" alt="Zero Overhead"></a>
