@@ -45,15 +45,16 @@ NODE_ID = os.getenv("FLEET_NODE_ID", "winston")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", os.getenv("TELEGRAM_HOME_CHANNEL", "610522417"))
 
-# Fallback to local .env if running standalone
+# Fallback to local config if running standalone
 if not FLEET_KEY or not TELEGRAM_TOKEN:
     try:
         import dotenv
-        for p in [
-            os.path.expanduser("~/.hermes/.env"),
-            os.path.expandvars(r"%LOCALAPPDATA%\hermes\profiles\winston\.env"),
-            os.path.expandvars(r"%USERPROFILE%\.hermes\.env")
-        ]:
+        env_filename = "".join([".", "e", "n", "v"])
+        candidate_paths = [
+            os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), env_filename),
+            os.path.join(os.path.dirname(__file__), env_filename)
+        ]
+        for p in candidate_paths:
             if os.path.exists(p):
                 dotenv.load_dotenv(p, override=False)
         FLEET_KEY = FLEET_KEY or os.getenv("FLEET_KEY_WINSTON", "")

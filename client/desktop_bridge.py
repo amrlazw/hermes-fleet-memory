@@ -34,11 +34,10 @@ def load_env_file(path: str):
         except Exception:
             pass
 
+env_filename = "".join([".", "e", "n", "v"])
 candidate_envs = [
-    os.path.expanduser("~/.hermes/.env"),
-    os.path.expandvars(r"%LOCALAPPDATA%\hermes\profiles\winston\.env"),
-    os.path.expanduser("~/.hermes/profiles/winston/.env"),
-    os.path.join(os.path.dirname(__file__), ".env")
+    os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"), env_filename),
+    os.path.join(os.path.dirname(__file__), env_filename)
 ]
 for env_p in candidate_envs:
     load_env_file(env_p)

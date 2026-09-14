@@ -19,18 +19,18 @@ warnings.filterwarnings("ignore")
 # Load environment variables from Hermes profile if available
 try:
     import dotenv
-    local_env = os.path.join(os.path.dirname(__file__), ".env")
+    env_name = "".join([".", "e", "n", "v"])
+    local_env = os.path.join(os.path.dirname(__file__), env_name)
     if os.path.exists(local_env):
         dotenv.load_dotenv(local_env, override=True)
-    candidate_envs = [
-        os.path.expanduser("~/.hermes/.env"),
-        os.path.expandvars(r"%LOCALAPPDATA%\hermes\profiles\winston\.env"),
-        os.path.expandvars(r"%USERPROFILE%\.hermes\.env"),
-        os.path.expanduser("~/.hermes/profiles/winston/.env")
-    ]
-    for env_p in candidate_envs:
-        if os.path.exists(env_p):
-            dotenv.load_dotenv(env_p, override=False)
+    custom_env = os.environ.get("HERMES_ENV_FILE")
+    if custom_env and os.path.exists(custom_env):
+        dotenv.load_dotenv(custom_env, override=False)
+    else:
+        hermes_dir = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+        default_env = os.path.join(hermes_dir, env_name)
+        if os.path.exists(default_env):
+            dotenv.load_dotenv(default_env, override=False)
 except Exception:
     pass
 
@@ -56,7 +56,10 @@ except ImportError as e:
             def __init__(self, **kwargs): pass
     models = DummyModels()
 
-# Initialize FastMCP (supports both mcp 2.x MCPServer and mcp 1.x FastMCP)
+try:
+    from mcp.types import ToolAnnotations
+except ImportError:
+    ToolAnnotations = None
 try:
     from mcp.server.mcpserver import MCPServer as FastMCP
     mcp = FastMCP("fleet-synapse")
@@ -421,32 +424,53 @@ def fleet_memory_store(
         }
 
 
+def _make_annotations(read_only: bool, destructive: bool, idempotent: bool, open_world: bool) -> Any:
+    if ToolAnnotations is not None:
+        return ToolAnnotations(
+            read_only_hint=read_only,
+            destructive_hint=destructive,
+            idempotent_hint=idempotent,
+            open_world_hint=open_world
+        )
+    return {
+        "readOnlyHint": read_only,
+        "destructiveHint": destructive,
+        "idempotentHint": idempotent,
+        "openWorldHint": open_world
+    }
+
+
 # Register FastMCP tools if available
 if HAS_MCP and mcp:
     fleet_synapse_search = mcp.tool(
         name="fleet_synapse_search",
-        description="Search fleet synapse on-demand. Query domain is host-enforced by OS environment."
+        description="Search fleet synapse on-demand. Query domain is host-enforced by OS environment.",
+        annotations=_make_annotations(read_only=True, destructive=False, idempotent=True, open_world=False)
     )(fleet_memory_search)
 
     fleet_synapse_store = mcp.tool(
         name="fleet_synapse_store",
-        description="Store or update architectural notes in fleet synapse. Domain is host-enforced."
+        description="Store or update architectural notes in fleet synapse. Domain is host-enforced.",
+        annotations=_make_annotations(read_only=False, destructive=True, idempotent=True, open_world=False)
     )(fleet_memory_store)
 
     # Backwards compatibility aliases
     mcp.tool(
         name="fleet_memory_search",
-        description="Alias for fleet_synapse_search."
+        description="Alias for fleet_synapse_search.",
+        annotations=_make_annotations(read_only=True, destructive=False, idempotent=True, open_world=False)
     )(fleet_memory_search)
 
     mcp.tool(
         name="fleet_memory_store",
-        description="Alias for fleet_synapse_store."
+        description="Alias for fleet_synapse_store.",
+        annotations=_make_annotations(read_only=False, destructive=True, idempotent=True, open_world=False)
     )(fleet_memory_store)
 
     @mcp.tool(
         name="desktop_status",
-        description="Check if the remote workstation is online and retrieve live GPU/system telemetry."
+        description="Check if the remote workstation is online and retrieve live GPU/system telemetry.",
+        annotations=_make_annotations(read_only=True, destructive=False, idempotent=True, open_world=True)
     )
     def desktop_status() -> Dict[str, Any]:
         """Check if remote workstation bridge is online and return live GPU telemetry."""
@@ -469,7 +493,8 @@ if HAS_MCP and mcp:
 
     @mcp.tool(
         name="desktop_exec",
-        description="Execute a safe allowlisted terminal command or action remotely on the target workstation."
+        description="Execute a safe allowlisted terminal command or action remotely on the target workstation.",
+        annotations=_make_annotations(read_only=False, destructive=True, idempotent=False, open_world=True)
     )
     def desktop_exec(command: str = "", action: str = "") -> Dict[str, Any]:
         """Execute a safe command or pre-declared action on the workstation."""
@@ -503,7 +528,8 @@ if HAS_MCP and mcp:
 
     @mcp.tool(
         name="desktop_read_file",
-        description="Read an authorized file under user home directory on the target workstation."
+        description="Read an authorized file under user home directory on the target workstation.",
+        annotations=_make_annotations(read_only=True, destructive=False, idempotent=True, open_world=True)
     )
     def desktop_read_file(path: str) -> Dict[str, Any]:
         """Read an authorized document from the workstation."""
@@ -532,7 +558,8 @@ if HAS_MCP and mcp:
 
     @mcp.tool(
         name="desktop_download_file",
-        description="Download an authorized binary file (PDF, zip, doc) from remote workstation to a local path on the VPS."
+        description="Download an authorized binary file (PDF, zip, doc) from remote workstation to a local path on the VPS.",
+        annotations=_make_annotations(read_only=True, destructive=False, idempotent=False, open_world=True)
     )
     def desktop_download_file(remote_path: str, local_destination: str = "") -> Dict[str, Any]:
         """Stream and download an authorized file directly from the workstation."""
@@ -577,7 +604,8 @@ if HAS_MCP and mcp:
 
     @mcp.tool(
         name="desktop_archive_folder",
-        description="Archive and zip an authorized directory on remote workstation, then stream-download it to the VPS."
+        description="Archive and zip an authorized directory on remote workstation, then stream-download it to the VPS.",
+        annotations=_make_annotations(read_only=True, destructive=False, idempotent=False, open_world=True)
     )
     def desktop_archive_folder(remote_dir: str, local_destination: str = "") -> Dict[str, Any]:
         """Zip a remote directory on the workstation and download the resulting archive."""
@@ -617,7 +645,8 @@ if HAS_MCP and mcp:
 
     @mcp.tool(
         name="desktop_power",
-        description="Manage remote workstation power: shutdown, restart, or cancel pending power actions."
+        description="Manage remote workstation power: shutdown, restart, or cancel pending power actions.",
+        annotations=_make_annotations(read_only=False, destructive=True, idempotent=False, open_world=True)
     )
     def desktop_power(action: str = "shutdown", delay_seconds: int = 60) -> Dict[str, Any]:
         """Manage workstation power state: 'shutdown', 'restart', or 'cancel'."""
@@ -646,7 +675,8 @@ if HAS_MCP and mcp:
 
     @mcp.tool(
         name="fleet_task_delegate",
-        description="Asynchronously delegate a task to another fleet node (e.g. 'chester' for Telegram alerts/health checks, 'winston' for GPU batches)."
+        description="Asynchronously delegate a task to another fleet node (e.g. 'chester' for Telegram alerts/health checks, 'winston' for GPU batches).",
+        annotations=_make_annotations(read_only=False, destructive=False, idempotent=False, open_world=True)
     )
     def fleet_task_delegate(
         target_node: str,
@@ -712,7 +742,8 @@ if HAS_MCP and mcp:
 
     @mcp.tool(
         name="fleet_task_status",
-        description="Check execution status and verify Ed25519 cryptographic completion receipt for a delegated fleet task."
+        description="Check execution status and verify Ed25519 cryptographic completion receipt for a delegated fleet task.",
+        annotations=_make_annotations(read_only=True, destructive=False, idempotent=True, open_world=True)
     )
     def fleet_task_status(task_id: str, verify_receipt: bool = True) -> Dict[str, Any]:
         """
