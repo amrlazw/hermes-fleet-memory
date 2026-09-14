@@ -51,6 +51,8 @@ jobs:
       - name: Run Unit & Defense-in-Depth Tests
         run: |
           python -m pytest tests/ -v --tb=short
+        env:
+          PYTHONPATH: ".:client:server"
 
       - name: Run Control Plane Smoke Test
         run: |
