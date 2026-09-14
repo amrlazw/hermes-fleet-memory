@@ -174,9 +174,14 @@ def run_autonomous_agent_setup(args):
     if args.apply_plan:
         report = scan_system_environment()
         args.role = report["recommended_role"]
-        args.domain = "personal" if args.role == "desktop" else ("work" if args.role == "edge" else "all")
+        args.domain = "personal" if args.role in ["desktop", "compute"] else ("work" if args.role in ["edge", "client"] else "all")
 
     role = args.role or "standalone"
+    if role == "compute":
+        role = "desktop"
+    elif role == "client":
+        role = "edge"
+
     receipt = {
         "status": "success",
         "role": role,
@@ -187,7 +192,7 @@ def run_autonomous_agent_setup(args):
     if role == "hub":
         secret = args.cluster_secret or secrets.token_hex(32)
         host = args.server_host or "127.0.0.1"
-        env_content = f"""# Hermes Fleet Memory — Cloud Hub Configuration (Agent Provisioned)
+        env_content = f"""# Hermes Fleet Memory — Head Node Configuration (Agent Provisioned)
 FLEET_SERVER_HOST={host}
 FLEET_QDRANT_HOST=127.0.0.1
 FLEET_QDRANT_PORT=6333
@@ -204,7 +209,7 @@ FLEET_HARD_DOMAIN=all
 
     else:
         domain = args.domain or ("personal" if role == "desktop" else "work")
-        client_id = args.client_id or ("winston" if role == "desktop" else "worker-node")
+        client_id = args.client_id or ("compute-node" if role == "desktop" else "client-node")
         secret = args.cluster_secret or secrets.token_hex(32)
         hub_url = args.hub_url or "wss://127.0.0.1:8443/tunnel"
 
@@ -249,9 +254,13 @@ def main():
     parser = argparse.ArgumentParser(
         description="Hermes Fleet Memory Setup Wizard (Supports Interactive & Autonomous Agent Modes)"
     )
-    parser.add_argument("--role", choices=["hub", "desktop", "edge", "standalone"], help="Node role in the fleet")
+    parser.add_argument(
+        "--role",
+        choices=["hub", "compute", "client", "desktop", "edge", "standalone"],
+        help="Node role: 'hub' (Head Node/VPS), 'compute' (GPU/Worker Rig), 'client' (Laptop/Workstation), or 'standalone'"
+    )
     parser.add_argument("--domain", choices=["personal", "work", "shared", "all"], help="Hardware domain firewall")
-    parser.add_argument("--client-id", help="Unique identifier for this node (e.g. winston, laptop)")
+    parser.add_argument("--node-name", "--client-id", dest="client_id", help="Custom name for this node (e.g. brain-vps, rig-3070, macbook, work-pc)")
     parser.add_argument("--hub-url", help="WebSocket ingress URL for Cloud Hub (e.g. wss://brain.example.com/tunnel)")
     parser.add_argument("--cluster-secret", help="256-bit cluster preshared secret")
     parser.add_argument("--server-host", help="Public domain or IP for Hub deployment")
@@ -278,13 +287,19 @@ def main():
     role = prompt_choice(
         "What type of node are you setting up on this machine?",
         [
-            ("hub", "Cloud Hub (Head / VPS / Central Qdrant + WSTunnel Server)"),
-            ("desktop", "Personal Workstation Rig (GPU host with Desktop Execution Bridge)"),
-            ("edge", "Worker / Laptop (Enterprise Work PC / Remote Client)"),
+            ("hub", "Head Node (Central Cloud VPS / Qdrant Brain + WSTunnel Ingress)"),
+            ("compute", "Compute Node (GPU Workstation / Local Rig / Ollama worker)"),
+            ("client", "Client Node (Work Laptop / Personal Mac / Secondary Dev Machine)"),
             ("standalone", "Local Demo Mode (Single-machine local Qdrant, zero tunnels)")
         ],
         default_idx=0
     )
+
+    # Normalize role alias
+    if role == "compute":
+        role = "desktop"
+    elif role == "client":
+        role = "edge"
 
     print(f"\n{GREEN}✔ Selected Role:{RESET} {BOLD}{role.upper()}{RESET}\n")
 
@@ -352,7 +367,10 @@ FLEET_HARD_DOMAIN=all
         default_idx=0 if role == "desktop" else 1
     )
 
-    client_id = prompt_input("Enter unique Node ID (e.g. winston, laptop, work-pc)", "winston" if role == "desktop" else "work-pc")
+    client_id = prompt_input(
+        "Give this node a custom name (e.g. brain-vps, my-gpu-rig, work-laptop, macbook)",
+        "compute-worker" if role == "desktop" else "dev-client"
+    )
 
     # Generate Node .env
     node_env = f"""# Hermes Fleet Memory — Member Node Configuration

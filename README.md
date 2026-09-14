@@ -204,8 +204,8 @@ python setup.py --apply-plan --json
 
 # Or manually target specific roles in autonomous CI/CD scripts:
 python setup.py --role hub --server-host brain.example.com --deploy-method docker --non-interactive --json
-python setup.py --role desktop --domain personal --client-id winston --cluster-secret <KEY> --non-interactive --json
-python setup.py --role edge --domain work --client-id laptop --cluster-secret <KEY> --non-interactive --json
+python setup.py --role compute --domain personal --node-name my-gpu-rig --cluster-secret <KEY> --non-interactive --json
+python setup.py --role client --domain work --node-name work-laptop --cluster-secret <KEY> --non-interactive --json
 ```
 
 The wizard will:
