@@ -174,12 +174,12 @@ def run_autonomous_agent_setup(args):
     if args.apply_plan:
         report = scan_system_environment()
         args.role = report["recommended_role"]
-        args.domain = "personal" if args.role in ["desktop", "compute"] else ("work" if args.role in ["edge", "client"] else "all")
+        args.domain = "personal" if args.role in ["desktop", "compute"] else ("work" if args.role in ["edge", "client", "work"] else "all")
 
     role = args.role or "standalone"
     if role == "compute":
         role = "desktop"
-    elif role == "client":
+    elif role in ["client", "work"]:
         role = "edge"
 
     receipt = {
@@ -209,7 +209,7 @@ FLEET_HARD_DOMAIN=all
 
     else:
         domain = args.domain or ("personal" if role == "desktop" else "work")
-        client_id = args.client_id or ("compute-node" if role == "desktop" else "client-node")
+        client_id = args.client_id or ("compute-node" if role == "desktop" else "work-node")
         secret = args.cluster_secret or secrets.token_hex(32)
         hub_url = args.hub_url or "wss://127.0.0.1:8443/tunnel"
 
@@ -256,11 +256,11 @@ def main():
     )
     parser.add_argument(
         "--role",
-        choices=["hub", "compute", "client", "desktop", "edge", "standalone"],
-        help="Node role: 'hub' (Head Node/VPS), 'compute' (GPU/Worker Rig), 'client' (Laptop/Workstation), or 'standalone'"
+        choices=["hub", "compute", "work", "client", "desktop", "edge", "standalone"],
+        help="Node role: 'hub' (Head Node/VPS), 'compute' (GPU/Worker Rig), 'work' (Work Laptop/Office PC), or 'standalone'"
     )
     parser.add_argument("--domain", choices=["personal", "work", "shared", "all"], help="Hardware domain firewall")
-    parser.add_argument("--node-name", "--client-id", dest="client_id", help="Custom name for this node (e.g. brain-vps, rig-3070, macbook, work-pc)")
+    parser.add_argument("--node-name", "--client-id", dest="client_id", help="Custom name for this node (e.g. brain-vps, rig-3070, work-laptop, macbook)")
     parser.add_argument("--hub-url", help="WebSocket ingress URL for Cloud Hub (e.g. wss://brain.example.com/tunnel)")
     parser.add_argument("--cluster-secret", help="256-bit cluster preshared secret")
     parser.add_argument("--server-host", help="Public domain or IP for Hub deployment")
@@ -289,7 +289,7 @@ def main():
         [
             ("hub", "Head Node (Central Cloud VPS / Qdrant Brain + WSTunnel Ingress)"),
             ("compute", "Compute Node (GPU Workstation / Local Rig / Ollama worker)"),
-            ("client", "Client Node (Work Laptop / Personal Mac / Secondary Dev Machine)"),
+            ("work", "Work Node (Corporate Laptop / Office PC / Enterprise Client)"),
             ("standalone", "Local Demo Mode (Single-machine local Qdrant, zero tunnels)")
         ],
         default_idx=0
@@ -298,7 +298,7 @@ def main():
     # Normalize role alias
     if role == "compute":
         role = "desktop"
-    elif role == "client":
+    elif role in ["client", "work"]:
         role = "edge"
 
     print(f"\n{GREEN}✔ Selected Role:{RESET} {BOLD}{role.upper()}{RESET}\n")
@@ -369,7 +369,7 @@ FLEET_HARD_DOMAIN=all
 
     client_id = prompt_input(
         "Give this node a custom name (e.g. brain-vps, my-gpu-rig, work-laptop, macbook)",
-        "compute-worker" if role == "desktop" else "dev-client"
+        "compute-worker" if role == "desktop" else "work-laptop"
     )
 
     # Generate Node .env
