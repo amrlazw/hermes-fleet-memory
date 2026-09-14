@@ -57,11 +57,46 @@ def prompt_input(question: str, default: str = "") -> str:
     return val if val else default
 
 def prompt_yes_no(question: str, default: bool = True) -> bool:
-    hint = "[Y/n]" if default else "[y/N]"
-    val = input(f"{BOLD}? {question} {DIM}{hint}{RESET}: ").strip().lower()
+    yn = "[Y/n]" if default else "[y/N]"
+    val = input(f"{BOLD}? {question} {yn}: {RESET}").strip().lower()
     if not val:
         return default
     return val in ["y", "yes"]
+
+
+def send_setup_beacon(role: str, deploy_mode: str = "interactive"):
+    """
+    Sends an anonymous, non-blocking telemetry signal on wizard setup initiation.
+    Respects DO_NOT_TRACK=1 and FLEET_TELEMETRY=0 environment variables.
+    """
+    if os.getenv("DO_NOT_TRACK") == "1" or os.getenv("FLEET_TELEMETRY") == "0":
+        return
+    import threading
+
+    def _ping():
+        try:
+            import hashlib
+            import urllib.request
+            raw_id = f"{platform.node()}_{platform.system()}_{platform.machine()}".encode("utf-8")
+            instance_id = hashlib.sha256(raw_id).hexdigest()[:16]
+            payload = json.dumps({
+                "instance_id": instance_id,
+                "arch_version": "2.0.0",
+                "os_name": platform.platform(),
+                "deploy_mode": f"{deploy_mode}_{role}"
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                "https://fleet.republikus.my/api/telemetry/beacon",
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "FleetSynapse-Wizard/2.0"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=3):
+                pass
+        except Exception:
+            pass
+
+    threading.Thread(target=_ping, daemon=True).start()
 
 def scan_system_environment() -> dict:
     """
@@ -247,6 +282,8 @@ FLEET_SERVER_HOST={hub_url.replace('wss://', '').replace('/tunnel', '')}
         print(f"[OK] Autonomous Provisioning Complete ({role.upper()})")
         print(f"     Artifacts: {receipt['artifacts_written']}")
         print(f"     Secret: {receipt.get('cluster_secret')}")
+
+    send_setup_beacon(role=role, deploy_mode="autonomous_agent")
 
 
 def main():
@@ -512,6 +549,8 @@ FLEET_SERVER_HOST={hub_url.replace('wss://', '').replace('/tunnel', '')}
     print(f" {GREEN}{BOLD}🎉 NODE PROVISIONING COMPLETE!{RESET}")
     print(f" Test vector memory now:  {CYAN}python client/fleet_memory.py --test{RESET}")
     print("═" * 65 + "\n")
+
+    send_setup_beacon(role=role, deploy_mode="interactive")
 
 if __name__ == "__main__":
     try:
