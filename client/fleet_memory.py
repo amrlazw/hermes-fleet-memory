@@ -92,6 +92,10 @@ QDRANT_PORT = int(os.getenv("FLEET_QDRANT_PORT", "6333"))
 QDRANT_API_KEY = os.getenv("FLEET_QDRANT_KEY", None)
 QDRANT_HTTPS = os.getenv("FLEET_QDRANT_HTTPS", "false").lower() == "true"
 QDRANT_URL = os.getenv("FLEET_QDRANT_URL", None)
+# Bound every vector call so a half-open WSTunnel can never hang a tool call forever.
+QDRANT_TIMEOUT = float(os.getenv("FLEET_QDRANT_TIMEOUT", "10"))
+
+FLEET_VERSION = "1.0.0"
 
 # Optional Desktop Bridge & Control Plane URLs
 BRIDGE_PORT = int(os.getenv("FLEET_BRIDGE_PORT", "8099"))
@@ -108,13 +112,15 @@ def get_client():
     global _client
     if _client is None:
         if QDRANT_URL:
-            _client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, check_compatibility=False)
+            _client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY,
+                                   timeout=QDRANT_TIMEOUT, check_compatibility=False)
         else:
             _client = QdrantClient(
                 host=QDRANT_HOST,
                 port=QDRANT_PORT,
                 api_key=QDRANT_API_KEY,
                 https=QDRANT_HTTPS,
+                timeout=QDRANT_TIMEOUT,
                 check_compatibility=False
             )
     return _client
@@ -987,11 +993,303 @@ def send_anonymous_beacon():
     threading.Thread(target=_ping, daemon=True).start()
 
 
-if __name__ == "__main__":
-    send_anonymous_beacon()
-    if "--bootstrap" in sys.argv:
-        bootstrap_collection()
-    elif HAS_MCP and mcp:
-        mcp.run()
+def _eprint(*args, **kwargs):
+    """Diagnostics always go to stderr; stdout is reserved for the JSON-RPC stream."""
+    kwargs["file"] = sys.stderr
+    print(*args, **kwargs)
+
+
+def _stdin_is_devnull() -> bool:
+    """
+    True if stdin is the null device. Detected without reading a byte, so it is
+    safe to call before handing the stream to the MCP transport.
+
+    Windows is excluded on purpose: there os.stat reports a zeroed st_dev/st_ino
+    for both anonymous pipes and NUL, so samestat cannot tell a real MCP client
+    from the null device and would refuse legitimate sessions. On Windows NUL
+    reports as a character device, so the isatty() branch already covers it.
+    """
+    if sys.platform == "win32":
+        return False
+    try:
+        st = os.fstat(0)
+        if st.st_ino == 0:
+            return False
+        return os.path.samestat(st, os.stat(os.devnull))
+    except Exception:
+        return False
+
+
+def _probe_qdrant():
+    """Bounded connectivity probe. Returns (ok, latency_ms, detail). Never raises."""
+    t0 = time.time()
+    try:
+        collections = [c.name for c in get_client().get_collections().collections]
+        return True, (time.time() - t0) * 1000.0, collections
+    except Exception as e:
+        return False, (time.time() - t0) * 1000.0, str(e).strip().splitlines()[0][:200]
+
+
+def _target_desc() -> str:
+    if QDRANT_URL:
+        return QDRANT_URL
+    scheme = "https" if QDRANT_HTTPS else "http"
+    return f"{scheme}://{QDRANT_HOST}:{QDRANT_PORT}"
+
+
+def _apply_overrides(args) -> None:
+    """Let CLI flags win over the environment for this process."""
+    global ENFORCED_DOMAIN, QDRANT_URL, QDRANT_API_KEY, QDRANT_HOST, QDRANT_PORT, _client
+    if args.domain:
+        ENFORCED_DOMAIN = args.domain.lower()
+        os.environ["FLEET_HARD_DOMAIN"] = ENFORCED_DOMAIN
+    if args.url:
+        QDRANT_URL = args.url
+    if args.key:
+        QDRANT_API_KEY = args.key
+    if args.host:
+        QDRANT_HOST = args.host
+    if args.port:
+        QDRANT_PORT = args.port
+    _client = None  # force rebuild with the new settings
+
+
+def cmd_doctor(args) -> int:
+    """
+    Non-destructive preflight. Every check is bounded and this always exits --
+    it is the safe thing for an agent to run instead of launching the server
+    in a shell to "see if it works".
+    """
+    _apply_overrides(args)
+    problems = []
+
+    print("hermes-fleet-synapse doctor")
+    print(f"  python           : {sys.version.split()[0]} ({sys.executable})")
+    print(f"  enforced domain  : {ENFORCED_DOMAIN}")
+    print(f"  vector target    : {_target_desc()}")
+    print(f"  api key present  : {'yes' if QDRANT_API_KEY else 'no'}")
+
+    print("  dependencies     :")
+    for mod, why in (("mcp", "MCP stdio server"),
+                     ("qdrant_client", "vector storage"),
+                     ("fastembed", "embeddings"),
+                     ("dotenv", "profile .env loading")):
+        try:
+            __import__(mod)
+            print(f"    [OK]   {mod}")
+        except ImportError:
+            print(f"    [FAIL] {mod}  ({why})")
+            problems.append(f"missing dependency: {mod}")
+
+    if not HAS_MCP:
+        problems.append("FastMCP unavailable - the stdio server cannot start")
+
+    print("  embedding model  :")
+    cache = os.getenv("FASTEMBED_CACHE_PATH") or os.path.join(
+        os.path.expanduser("~"), ".cache", "fastembed")
+    if os.path.isdir(cache) and os.listdir(cache):
+        print(f"    [OK]   cached at {cache}")
     else:
-        print("FastMCP unavailable. Use as Python library or install 'mcp'.")
+        print(f"    [WARN] not cached ({cache}) - first search downloads ~130MB.")
+        print("           run with --warm to pre-download it now.")
+
+    print(f"  vector engine    : probing (timeout {QDRANT_TIMEOUT}s)...")
+    ok, ms, detail = _probe_qdrant()
+    if ok:
+        print(f"    [OK]   connected in {ms:.0f}ms")
+        print(f"           collections: {', '.join(detail) if detail else '(none yet)'}")
+        if COLLECTION_NAME not in detail:
+            print(f"    [WARN] '{COLLECTION_NAME}' missing - run --init or --bootstrap.")
+    else:
+        print(f"    [FAIL] unreachable after {ms:.0f}ms: {detail}")
+        print("           check the WSTunnel/Tailscale bridge, or pass --url for managed Qdrant.")
+        problems.append("vector engine unreachable")
+
+    print()
+    if problems:
+        print(f"RESULT: {len(problems)} problem(s) found")
+        for item in problems:
+            print(f"  - {item}")
+        return 1
+    print("RESULT: all checks passed - safe to register as an MCP server.")
+    return 0
+
+
+def cmd_warm(args) -> int:
+    """Pre-download the embedding model so the first search is not a silent multi-minute stall."""
+    print("Downloading embedding model BAAI/bge-small-en-v1.5 (~130MB on first run)...")
+    try:
+        get_embedder().embed(["warmup"])
+    except Exception as e:
+        _eprint(f"[FAIL] could not prepare the embedding model: {e}")
+        return 1
+    print("[OK] embedding model ready.")
+    return 0
+
+
+def cmd_init(args) -> int:
+    """
+    Initialize this node and print Verification Ledger A (AGENTS.md section A.4).
+    Bounded and always exits -- never falls through to the blocking stdio server.
+    """
+    _apply_overrides(args)
+
+    print("[1/5] Auditing environment configuration...")
+    print(f"      * Enforced Domain: {ENFORCED_DOMAIN.upper()}")
+    print(f"      * Vector Target  : {_target_desc()}")
+    if ENFORCED_DOMAIN not in ("work", "personal", "shared", "all"):
+        _eprint(f"[FAIL] invalid domain '{ENFORCED_DOMAIN}'. Use --domain work|personal|shared|all.")
+        return 2
+
+    print("[2/5] Probing vector engine connectivity...")
+    ok, ms, detail = _probe_qdrant()
+    if not ok:
+        print(f"      [FAIL] Could not reach {_target_desc()} after {ms:.0f}ms")
+        print(f"             {detail}")
+        _eprint("[FAIL] init aborted: vector engine unreachable. Run --doctor for details.")
+        return 1
+    print(f"      [OK] Connected to Qdrant successfully (Latency: {ms:.0f}ms)")
+
+    print("[3/5] Bootstrapping collection & payload indexes...")
+    try:
+        bootstrap_collection()
+        print(f"      [OK] Collection '{COLLECTION_NAME}' validated (384-dim COSINE)")
+    except Exception as e:
+        _eprint(f"[FAIL] bootstrap failed: {e}")
+        return 1
+
+    print("[4/5] Writing node configuration...")
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    try:
+        lines = [f"FLEET_HARD_DOMAIN={ENFORCED_DOMAIN}"]
+        if QDRANT_URL:
+            lines.append(f"FLEET_QDRANT_URL={QDRANT_URL}")
+        else:
+            lines.append(f"FLEET_QDRANT_HOST={QDRANT_HOST}")
+            lines.append(f"FLEET_QDRANT_PORT={QDRANT_PORT}")
+        if args.key:
+            lines.append(f"FLEET_QDRANT_KEY={args.key}")
+        if os.path.exists(env_path) and not args.force:
+            print(f"      [SKIP] {env_path} already exists (use --force to overwrite)")
+        else:
+            with open(env_path, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + "\n")
+            try:
+                os.chmod(env_path, 0o600)
+            except Exception:
+                pass
+            print(f"      [OK] Wrote {env_path} (mode 0600)")
+    except Exception as e:
+        print(f"      [WARN] could not write .env: {e}")
+
+    print("[5/5] MCP registration snippet...")
+    script = os.path.abspath(__file__)
+    print(f"      [OK] Register with: claude mcp add fleet-synapse -- {sys.executable} {script}")
+    print()
+    print("Initialization complete. Verify anytime with --doctor.")
+    return 0
+
+
+def cmd_serve(args) -> int:
+    """Start the FastMCP stdio server. This blocks by design, waiting for JSON-RPC on stdin."""
+    if not HAS_MCP:
+        _eprint("[FAIL] FastMCP is unavailable. Install it with:")
+        _eprint('       pip install "mcp[cli]" qdrant-client fastembed python-dotenv')
+        return 1
+
+    if not getattr(args, "serve", False):
+        # Refuse the two launches that look like a hang instead of a server.
+        if sys.stdin.isatty():
+            _eprint("This is an MCP stdio server: with no arguments it blocks waiting for")
+            _eprint("JSON-RPC on stdin, which in a terminal looks like a freeze.")
+            _eprint("")
+            _eprint("  Check this node   : --doctor")
+            _eprint("  Initialize it     : --init --domain work|personal|all")
+            _eprint("  Start anyway      : --serve")
+            _eprint("")
+            _eprint("  Register with Claude Code:")
+            _eprint(f"    claude mcp add fleet-synapse -- {sys.executable} {os.path.abspath(__file__)}")
+            return 2
+        if _stdin_is_devnull():
+            _eprint("[FAIL] stdin is the null device, so no MCP client can ever talk to")
+            _eprint("       this process. Refusing to start and exit silently.")
+            _eprint("       Did you mean --doctor or --init?")
+            return 2
+
+    _eprint("fleet-synapse MCP server ready; waiting for JSON-RPC on stdin. Ctrl-C to stop.")
+    started = time.time()
+    mcp.run()
+    if time.time() - started < 2.0:
+        # stdin hit EOF before any client spoke: previously this exited 0 in
+        # silence and looked like a successful run that had done nothing.
+        _eprint("[WARN] session ended immediately - stdin closed before a client connected.")
+        _eprint("       If you launched this from a shell, use --doctor instead.")
+        return 2
+    return 0
+
+
+def _build_parser():
+    import argparse
+    p = argparse.ArgumentParser(
+        prog="fleet_memory.py",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Hermes Fleet Synapse - distributed vector memory over a FastMCP stdio server.",
+        epilog=(
+            "Typical use:\n"
+            "  --doctor                      bounded health check (safe, always exits)\n"
+            "  --init --domain personal      initialize this node\n"
+            "  --warm                        pre-download the embedding model\n"
+            "  --serve                       run the stdio server explicitly\n"
+            "\n"
+            "With no arguments it runs as an MCP stdio server, which is how MCP clients\n"
+            "launch it. Run --doctor instead of launching it by hand."
+        ),
+    )
+    p.add_argument("--init", action="store_true",
+                   help="Initialize this node: probe Qdrant, bootstrap the collection, write .env.")
+    p.add_argument("--doctor", action="store_true",
+                   help="Non-destructive preflight of deps, config, connectivity and model cache.")
+    p.add_argument("--bootstrap", action="store_true",
+                   help="Create the Qdrant collection and payload indexes only.")
+    p.add_argument("--warm", action="store_true",
+                   help="Pre-download the embedding model so the first search is not slow.")
+    p.add_argument("--serve", action="store_true",
+                   help="Explicitly start the FastMCP stdio server (blocks on stdin).")
+    p.add_argument("--domain", choices=["work", "personal", "shared", "all"],
+                   help="Domain firewall for this node (sets FLEET_HARD_DOMAIN).")
+    p.add_argument("--url", help="Qdrant URL, for managed/cloud clusters.")
+    p.add_argument("--key", help="Qdrant API key.")
+    p.add_argument("--host", help="Qdrant host (default 127.0.0.1).")
+    p.add_argument("--port", type=int, help="Qdrant port (default 6333).")
+    p.add_argument("--force", action="store_true", help="Overwrite an existing .env during --init.")
+    p.add_argument("--version", action="version", version=f"hermes-fleet-synapse {FLEET_VERSION}")
+    return p
+
+
+def main(argv=None) -> int:
+    # Unknown flags exit 2 with usage on stderr rather than silently starting a
+    # server that blocks forever -- that fall-through is what used to strand
+    # agents running the documented "--init" command.
+    args = _build_parser().parse_args(sys.argv[1:] if argv is None else argv)
+
+    send_anonymous_beacon()
+
+    if args.doctor:
+        return cmd_doctor(args)
+    if args.warm:
+        return cmd_warm(args)
+    if args.init:
+        return cmd_init(args)
+    if args.bootstrap:
+        _apply_overrides(args)
+        try:
+            bootstrap_collection()
+            return 0
+        except Exception as e:
+            _eprint(f"[FAIL] bootstrap failed: {e}")
+            return 1
+    return cmd_serve(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

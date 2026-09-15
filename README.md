@@ -85,7 +85,26 @@ mcp_servers:
   }
 }
 ```
+**Claude Code (CLI) — one command:**
+```bash
+# 1. check the node first; this is bounded and always exits
+python client/fleet_memory.py --doctor
+
+# 2. initialize it (work | personal | all)
+python client/fleet_memory.py --init --domain personal
+
+# 3. register the server
+claude mcp add fleet-synapse -- python /absolute/path/to/hermes-fleet-synapse/client/fleet_memory.py
+```
+
 *You now have all 12 FastMCP tools active for on-demand vector memory retrieval and execution directly inside your AI agent!*
+
+> **Running it by hand looks like a freeze — that is expected.**
+> With no arguments this is an MCP **stdio server**: it blocks waiting for JSON-RPC on
+> stdin, which is exactly what an MCP client sends and exactly what a shell does not.
+> Use `--doctor` to inspect the node, `--init` to set it up, and `--serve` if you really
+> do want the blocking server. Any unrecognized flag exits `2` with usage rather than
+> starting the server. See [Troubleshooting](#troubleshooting).
 
 ---
 
@@ -533,3 +552,44 @@ To measure real-world framework adoption and guide maintenance priorities, `herm
 ## License
 
 MIT © 2026 Mohamad Amirul Azwan
+
+
+---
+
+## Troubleshooting
+
+### The command hangs / nothing is printed
+
+`client/fleet_memory.py` is an MCP **stdio server**. Started with no arguments it blocks
+forever waiting for JSON-RPC on stdin. In a terminal — or in an AI agent's shell tool —
+that is indistinguishable from a freeze.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Runs forever, no output | Started as a bare stdio server from a shell | `--doctor` or `--init`; `--serve` to start it deliberately |
+| Exits `0` instantly, prints nothing | stdin was at EOF, so no client could ever connect | Same — the server now exits `2` and says so |
+| Exits `2` with usage | Unrecognized flag | Check `--help` |
+| First search takes minutes | Embedding model downloading (~130MB) | `--warm` ahead of time |
+| Tool calls hang, then fail | Qdrant unreachable through the tunnel | `--doctor`; tune `FLEET_QDRANT_TIMEOUT` (default 10s) |
+
+### Preflight
+
+```bash
+python client/fleet_memory.py --doctor
+```
+
+Checks the interpreter, domain, vector target, dependencies, embedding-model cache and
+Qdrant connectivity. Every check is bounded, it never starts the server, and it exits
+non-zero when something is wrong — safe for an agent to run unattended.
+
+### Environment
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `FLEET_HARD_DOMAIN` | `work` | Domain firewall: `work`, `personal`, `shared`, `all` |
+| `FLEET_QDRANT_URL` | – | Managed/cloud Qdrant URL (overrides host/port) |
+| `FLEET_QDRANT_HOST` / `_PORT` | `127.0.0.1` / `6333` | Self-hosted vector engine |
+| `FLEET_QDRANT_KEY` | – | Qdrant API key |
+| `FLEET_QDRANT_TIMEOUT` | `10` | Seconds before a vector call gives up |
+| `FASTEMBED_THREADS` | `2` | Embedding worker threads |
+| `DO_NOT_TRACK` / `FLEET_TELEMETRY` | – | Set `1` / `0` to disable the startup beacon |
