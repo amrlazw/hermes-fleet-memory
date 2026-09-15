@@ -69,13 +69,66 @@ def test_command_allowlist_rejects_dangerous_arguments():
     """Verifies that even within allowed binaries, dangerous arguments are blocked."""
     dangerous_args = [
         "git -rf /",
-        "python -c shutdown",
+        "git log shutdown",
     ]
 
     for cmd in dangerous_args:
         with pytest.raises(PermissionError) as excinfo:
             desktop_bridge.parse_and_validate_command(cmd)
         assert "forbidden by security policy" in str(excinfo.value)
+
+
+def test_interpreters_are_not_allowlisted():
+    """
+    python/node are arbitrary code execution: `python -c ...` and `node -e ...`
+    would defeat the allowlist entirely, so the binaries must not be in it.
+    """
+    for binary in ("python", "python3", "node"):
+        assert binary not in desktop_bridge.ALLOWED_BINARIES
+
+    interpreter_commands = [
+        'python -c "import os; os.system(\'whoami\')"',
+        'python3 -c "print(1)"',
+        'node -e "require(\'child_process\').execSync(\'whoami\')"',
+    ]
+    for cmd in interpreter_commands:
+        with pytest.raises(PermissionError) as excinfo:
+            desktop_bridge.parse_and_validate_command(cmd)
+        assert "not authorized" in str(excinfo.value)
+
+
+def test_git_execution_flags_blocked():
+    """git -c / --exec-path / --upload-pack run attacker-chosen programs."""
+    escapes = [
+        "git -c core.pager=whoami log",
+        "git --exec-path=/tmp/evil status",
+        "git --upload-pack=whoami fetch",
+    ]
+    for cmd in escapes:
+        with pytest.raises(PermissionError) as excinfo:
+            desktop_bridge.parse_and_validate_command(cmd)
+        assert "forbidden by security policy" in str(excinfo.value)
+
+
+def test_qdrant_key_cannot_authenticate_to_bridge(monkeypatch):
+    """
+    The bridge secret must be independent of the vector-database credential:
+    stealing the Qdrant key must not grant host command execution. Both the
+    module constant and _verify_auth used to fall back to FLEET_QDRANT_KEY.
+    """
+    monkeypatch.setattr(desktop_bridge, "FLEET_BRIDGE_KEY", "")
+    monkeypatch.delenv("FLEET_BRIDGE_KEY", raising=False)
+    monkeypatch.setenv("FLEET_QDRANT_KEY", "qdrant-only-secret")
+
+    class DummyHandler:
+        def __init__(self, headers):
+            self.headers = headers
+        _verify_auth = desktop_bridge.SecureBridgeHandler._verify_auth
+
+    # Presenting the Qdrant key must not authenticate.
+    assert not DummyHandler({"Authorization": "Bearer qdrant-only-secret"})._verify_auth()
+    # With no bridge key configured, nothing authenticates -- it fails closed.
+    assert not DummyHandler({"Authorization": "Bearer anything"})._verify_auth()
 
 
 def test_predeclared_actions():
@@ -112,13 +165,24 @@ def test_blocked_file_substrings():
     ]
 
     for path_str in sensitive_targets:
-        blocked = False
-        lower_str = path_str.lower()
-        for forbidden in desktop_bridge.BLOCKED_SUBSTRINGS:
-            if forbidden in lower_str:
-                blocked = True
-                break
-        assert blocked, f"Path '{path_str}' should have been blocked by BLOCKED_SUBSTRINGS!"
+        assert desktop_bridge.is_blocked_path(path_str), \
+            f"Path '{path_str}' should have been blocked!"
+
+
+def test_blocked_paths_do_not_false_positive():
+    """
+    Matching was substring-based, so ~/samples tripped 'sam' and a passwd-reset
+    folder tripped 'passwd'. Blocking is now per path component.
+    """
+    innocent = [
+        "/home/user/samples/notes.md",
+        "/home/user/passwd-reset-designs/spec.md",
+        "/home/user/credentials-policy-docs/readme.md",
+        "C:\\Users\\dev\\shadowbox\\main.py",
+    ]
+    for path_str in innocent:
+        assert not desktop_bridge.is_blocked_path(path_str), \
+            f"Path '{path_str}' should NOT have been blocked!"
 
 
 def test_load_env_file_pure_python(tmp_path, monkeypatch):
