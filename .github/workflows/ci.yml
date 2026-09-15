@@ -23,7 +23,7 @@ jobs:
         run: pip install ruff
 
       - name: Run Ruff Linter
-        run: ruff check client server tests setup.py
+        run: ruff check client server tests setup.py fleet_wizard.py
 
   test:
     name: Test (${{ matrix.os }} - Python ${{ matrix.python-version }})

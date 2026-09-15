@@ -12,11 +12,10 @@ import re
 import shlex
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.parse
 import zipfile
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
@@ -45,12 +44,22 @@ for env_p in candidate_envs:
 PORT = int(os.getenv("FLEET_BRIDGE_PORT", "8099"))
 HOST = "127.0.0.1"
 
-# Decoupled bridge execution secret (distinct from Qdrant vector database key)
-# Falls back to FLEET_QDRANT_KEY if FLEET_BRIDGE_KEY is unset
-FLEET_BRIDGE_KEY = os.getenv("FLEET_BRIDGE_KEY") or os.getenv("FLEET_QDRANT_KEY") or ""
+# Decoupled bridge execution secret. There is deliberately NO fallback to
+# FLEET_QDRANT_KEY: the whole point of the split is that stealing the vector
+# database credential must not grant host execution. Falling back re-fused the
+# two secrets for anyone who had not set FLEET_BRIDGE_KEY explicitly.
+FLEET_BRIDGE_KEY = os.getenv("FLEET_BRIDGE_KEY") or ""
+_QDRANT_KEY_FOR_COMPARISON = os.getenv("FLEET_QDRANT_KEY") or ""
 
 # Jailed directory for safe file retrieval (defaults to user home)
 ALLOWED_ROOT = Path(os.getenv("FLEET_ALLOWED_ROOT", str(Path.home()))).resolve()
+
+# /archive staging. Kept inside ALLOWED_ROOT so the returned download_url is
+# actually servable, and bounded so a large tree cannot fill the disk.
+ARCHIVE_STAGING = ALLOWED_ROOT / ".hermes" / "archives"
+MAX_ARCHIVE_BYTES = int(os.getenv("FLEET_MAX_ARCHIVE_BYTES", str(512 * 1024 * 1024)))
+MAX_ARCHIVE_FILES = int(os.getenv("FLEET_MAX_ARCHIVE_FILES", "20000"))
+ARCHIVE_RETENTION_SECONDS = int(os.getenv("FLEET_ARCHIVE_RETENTION_SECONDS", str(24 * 3600)))
 
 BLOCKED_SUBSTRINGS = [
     ".ssh",
@@ -64,7 +73,13 @@ BLOCKED_SUBSTRINGS = [
     "passwd",
 ]
 
-# Strict binary allowlist for shell=False execution
+# Strict binary allowlist for shell=False execution.
+#
+# Interpreters (python/python3/node) are deliberately NOT here. `python -c ...`
+# and `node -e ...` are arbitrary code execution, so allowlisting them defeats
+# the allowlist entirely. Pre-declared entries in ALLOWED_ACTIONS may still
+# invoke an interpreter, because those argv arrays are fixed in this file and
+# never assembled from request input.
 ALLOWED_BINARIES = {
     "nvidia-smi",
     "git",
@@ -74,9 +89,20 @@ ALLOWED_BINARIES = {
     "net",
     "uptime",
     "whoami",
-    "python",
-    "python3",
-    "node"
+}
+
+# Flags that turn an otherwise safe binary into an execution primitive.
+# git -c core.pager=<cmd> / --exec-path=<dir> / --upload-pack=<cmd> all run
+# attacker-chosen programs.
+BINARY_ARG_RULES = {
+    "git": [
+        r"^-c$",
+        r"^--exec-path(=|$)",
+        r"^--upload-pack(=|$)",
+        r"^--receive-pack(=|$)",
+        r"^--config-env(=|$)",
+    ],
+    "ollama": [r"^--?serve$"],
 }
 
 # Pre-declared parameterized actions
@@ -88,8 +114,13 @@ ALLOWED_ACTIONS = {
     "wstunnel_status": ["tasklist", "/FI", "IMAGENAME eq wstunnel.exe"] if sys.platform == "win32" else ["pgrep", "-l", "wstunnel"],
     "whoami": ["whoami"],
     "system_uptime": ["net", "statistics", "workstation"] if sys.platform == "win32" else ["uptime"],
-    "threads_publish": ["python", "C:/Users/dontlookie/AppData/Local/hermes/bin/post_fleet_synapse_update.py", "--submit"]
+    # Resolved from the environment so the repo carries no personal absolute path.
+    # Set FLEET_THREADS_PUBLISH_SCRIPT to enable; the action is dropped when unset.
+    "threads_publish": [sys.executable, os.getenv("FLEET_THREADS_PUBLISH_SCRIPT", ""), "--submit"]
 }
+
+if not os.getenv("FLEET_THREADS_PUBLISH_SCRIPT"):
+    ALLOWED_ACTIONS.pop("threads_publish", None)
 
 # Parameterized argument blacklist
 ARGUMENT_BLACKLIST = [
@@ -134,8 +165,51 @@ def parse_and_validate_command(cmd_str: str) -> list:
         for bad in ARGUMENT_BLACKLIST:
             if re.search(bad, arg_lower):
                 raise PermissionError(f"Argument '{arg}' forbidden by security policy pattern: {bad}")
+        for bad in BINARY_ARG_RULES.get(binary, []):
+            if re.search(bad, arg_lower):
+                raise PermissionError(
+                    f"Argument '{arg}' forbidden by security policy pattern: {bad}"
+                )
 
     return tokens
+
+
+def is_blocked_path(path_str: str) -> str:
+    """
+    Return the sensitive name a path matches, or "" if it is clean.
+
+    Matches on whole path components rather than raw substrings. Substring
+    matching rejected innocent paths -- ~/samples hit "sam", anything under a
+    "passwd-reset" folder hit "passwd" -- while adding no real protection.
+    """
+    for component in path_str.lower().replace("\\", "/").split("/"):
+        if not component:
+            continue
+        stem = component.split(".", 1)[0]
+        for blocked in BLOCKED_SUBSTRINGS:
+            if component == blocked or stem == blocked or component.startswith(blocked + "."):
+                return blocked
+    return ""
+
+
+def prune_stale_archives() -> int:
+    """
+    Delete archives older than the retention window. Previously every /archive
+    call left a zip behind forever, so repeated use filled the disk.
+    """
+    removed = 0
+    cutoff = time.time() - ARCHIVE_RETENTION_SECONDS
+    try:
+        for old in ARCHIVE_STAGING.glob("fleet_archive_*.zip"):
+            try:
+                if old.stat().st_mtime < cutoff:
+                    old.unlink()
+                    removed += 1
+            except OSError:
+                continue
+    except Exception:
+        pass
+    return removed
 
 
 class SecureBridgeHandler(BaseHTTPRequestHandler):
@@ -155,7 +229,7 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
         if not auth_header.startswith("Bearer "):
             return False
         token = auth_header[7:].strip()
-        current_key = FLEET_BRIDGE_KEY or os.getenv("FLEET_BRIDGE_KEY") or os.getenv("FLEET_QDRANT_KEY") or ""
+        current_key = FLEET_BRIDGE_KEY or os.getenv("FLEET_BRIDGE_KEY") or ""
         if not current_key:
             return False
         return hmac.compare_digest(token, current_key)
@@ -176,11 +250,10 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
             self._send_json(403, {"error": f"Access denied: Path outside of {ALLOWED_ROOT}"})
             return
 
-        path_str_lower = str(target_path).lower()
-        for blocked in BLOCKED_SUBSTRINGS:
-            if blocked in path_str_lower:
-                self._send_json(403, {"error": f"Access denied: Path contains sensitive pattern '{blocked}'"})
-                return
+        blocked = is_blocked_path(str(target_path))
+        if blocked:
+            self._send_json(403, {"error": f"Access denied: Path contains sensitive pattern '{blocked}'"})
+            return
 
         if not target_path.exists():
             self._send_json(404, {"error": "File not found"})
@@ -211,14 +284,23 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
         parsed_url = urllib.parse.urlparse(self.path)
 
         if parsed_url.path in ["/health", "/status"]:
+            # Liveness stays open so the fleet dashboard can poll without a
+            # credential, but hardware telemetry is only for authenticated
+            # callers -- it used to be readable by anything that reached the port.
+            if not self._verify_auth():
+                self._send_json(200, {"status": "online", "timestamp": time.time()})
+                return
+
             gpu_data = {"name": "NVIDIA GPU", "temp_c": 0, "utilization_pct": 0, "mem_used_mb": 0, "mem_total_mb": 0}
             try:
+                creationflags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
                 gpu_proc = subprocess.run(
                     ALLOWED_ACTIONS["gpu_status"],
                     capture_output=True,
                     text=True,
                     shell=False,
-                    timeout=5
+                    timeout=5,
+                    creationflags=creationflags
                 )
                 if gpu_proc.returncode == 0 and gpu_proc.stdout.strip():
                     parts = [p.strip() for p in gpu_proc.stdout.strip().split(",")]
@@ -287,12 +369,14 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
                 return
 
             try:
+                creationflags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
                 proc = subprocess.run(
                     tokens,
                     shell=False,
                     capture_output=True,
                     text=True,
-                    timeout=60
+                    timeout=60,
+                    creationflags=creationflags
                 )
                 self._send_json(200, {
                     "exit_code": proc.returncode,
@@ -326,31 +410,60 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(403, {"error": f"Access denied: Path outside of {ALLOWED_ROOT}"})
                 return
 
-            path_str_lower = str(target_dir).lower()
-            for blocked in BLOCKED_SUBSTRINGS:
-                if blocked in path_str_lower:
-                    self._send_json(403, {"error": f"Access denied: Path contains sensitive pattern '{blocked}'"})
-                    return
+            blocked = is_blocked_path(str(target_dir))
+            if blocked:
+                self._send_json(403, {"error": f"Access denied: Path contains sensitive pattern '{blocked}'"})
+                return
 
             if not target_dir.exists() or not target_dir.is_dir():
                 self._send_json(404, {"error": "Directory not found"})
                 return
 
             try:
-                tmp_zip = os.path.join(tempfile.gettempdir(), f"fleet_archive_{int(time.time())}_{target_dir.name}.zip")
-                with zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_DEFLATED) as zipf:
+                prune_stale_archives()
+                # Staged inside ALLOWED_ROOT, not the system temp dir: _stream_file
+                # refuses anything outside the jail, so a /tmp archive produced a
+                # download_url that always 403'd on Linux.
+                ARCHIVE_STAGING.mkdir(parents=True, exist_ok=True)
+                zip_path = ARCHIVE_STAGING / f"fleet_archive_{int(time.time())}_{target_dir.name}.zip"
+
+                written = 0
+                total_bytes = 0
+                skipped = []
+                truncated = False
+                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
                     for root, dirs, files in os.walk(target_dir):
+                        # Do not descend into sensitive directories, and do not
+                        # archive sensitive files. The jail check above only
+                        # covered the top-level path, so a directory containing
+                        # .env or .ssh was archived wholesale and then served.
+                        dirs[:] = [d for d in dirs if not is_blocked_path(d)]
                         for f in files:
                             full_p = os.path.join(root, f)
-                            rel_p = os.path.relpath(full_p, target_dir)
-                            zipf.write(full_p, rel_p)
+                            if is_blocked_path(full_p):
+                                skipped.append(os.path.relpath(full_p, target_dir))
+                                continue
+                            try:
+                                size = os.path.getsize(full_p)
+                            except OSError:
+                                continue
+                            if written >= MAX_ARCHIVE_FILES or total_bytes + size > MAX_ARCHIVE_BYTES:
+                                truncated = True
+                                break
+                            zipf.write(full_p, os.path.relpath(full_p, target_dir))
+                            written += 1
+                            total_bytes += size
+                        if truncated:
+                            break
 
-                zip_size = os.path.getsize(tmp_zip)
                 self._send_json(200, {
                     "status": "success",
-                    "archive_path": tmp_zip,
-                    "size_bytes": zip_size,
-                    "download_url": f"/download?path={urllib.parse.quote(tmp_zip)}"
+                    "archive_path": str(zip_path),
+                    "size_bytes": os.path.getsize(zip_path),
+                    "files_archived": written,
+                    "files_skipped_sensitive": len(skipped),
+                    "truncated": truncated,
+                    "download_url": f"/download?path={urllib.parse.quote(str(zip_path))}"
                 })
             except Exception as e:
                 self._send_json(500, {"error": f"Failed to create archive: {e}"})
@@ -373,11 +486,10 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(403, {"error": f"Access denied: Path outside of {ALLOWED_ROOT}"})
                 return
 
-            path_str_lower = str(target_path).lower()
-            for blocked in BLOCKED_SUBSTRINGS:
-                if blocked in path_str_lower:
-                    self._send_json(403, {"error": f"Access denied: Path contains sensitive pattern '{blocked}'"})
-                    return
+            blocked = is_blocked_path(str(target_path))
+            if blocked:
+                self._send_json(403, {"error": f"Access denied: Path contains sensitive pattern '{blocked}'"})
+                return
 
             if not target_path.exists():
                 self._send_json(404, {"error": "File not found"})
@@ -408,7 +520,7 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
             delay = int(req_data.get("delay", 60))
 
             if action not in ["shutdown", "restart", "sleep", "cancel"]:
-                self._send_json(400, {"error": "Action must be 'shutdown', 'restart', or 'cancel'"})
+                self._send_json(400, {"error": "Action must be 'shutdown', 'restart', 'sleep', or 'cancel'"})
                 return
 
             try:
@@ -427,6 +539,8 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
                         cmd = ["shutdown", f"+{delay // 60}", "Fleet Remote Shutdown"]
                     elif action == "restart":
                         cmd = ["shutdown", "-r", f"+{delay // 60}", "Fleet Remote Restart"]
+                    elif action == "sleep":
+                        cmd = ["systemctl", "suspend"]
                     elif action == "cancel":
                         cmd = ["shutdown", "-c"]
 
@@ -445,10 +559,31 @@ class SecureBridgeHandler(BaseHTTPRequestHandler):
 
 
 def run_bridge():
-    server = HTTPServer((HOST, PORT), SecureBridgeHandler)
+    if not FLEET_BRIDGE_KEY:
+        sys.stderr.write(
+            "[FATAL] FLEET_BRIDGE_KEY is not set. The bridge refuses to start without its\n"
+            "        own execution secret. It no longer falls back to FLEET_QDRANT_KEY,\n"
+            "        because that made the vector-database credential a host shell key.\n"
+            "        Generate one: python -c \"import secrets;print(secrets.token_hex(32))\"\n"
+        )
+        raise SystemExit(2)
+
+    if _QDRANT_KEY_FOR_COMPARISON and hmac.compare_digest(
+        FLEET_BRIDGE_KEY, _QDRANT_KEY_FOR_COMPARISON
+    ):
+        sys.stderr.write(
+            "[WARN] FLEET_BRIDGE_KEY is identical to FLEET_QDRANT_KEY. The two secrets are\n"
+            "       meant to be independent: anyone holding the vector-database key can\n"
+            "       currently authenticate to this execution bridge. Rotate one of them.\n"
+        )
+
+    removed = prune_stale_archives()
+    server = ThreadingHTTPServer((HOST, PORT), SecureBridgeHandler)
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Hardened Desktop Bridge v2 active on {HOST}:{PORT}")
     print(f"Allowed Root: {ALLOWED_ROOT}")
     print(f"Binary Allowlist: {sorted(ALLOWED_BINARIES)}")
+    if removed:
+        print(f"Pruned {removed} stale archive(s) from {ARCHIVE_STAGING}")
     server.serve_forever()
 
 

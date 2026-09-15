@@ -26,9 +26,21 @@ ENV/
 
 # Environment and Secrets
 .env
+.env.*
 *.key
 *.pem
 *.token
+
+# Local state databases (CLAUDE.md: never commit $FLEET_HOME)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Local archives and scratch
+.hermes/
+backup_snapshots/
 
 # OS specifics
 .DS_Store
