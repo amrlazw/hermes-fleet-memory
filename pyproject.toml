@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hermes-fleet-synapse"
+name = "hermes-fleet-memory"
 version = "1.0.0"
 description = "Distributed vector memory, hardware-enforced domain firewall, and NAT-traversing execution mesh for multi-instance Hermes fleets"
 readme = "README.md"
