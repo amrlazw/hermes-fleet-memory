@@ -21,7 +21,7 @@ hang, not a crash — there is no output to diagnose.
 - Pre-download the embedding model with `--warm`, or the first search stalls
   for minutes while it fetches ~130MB.
 - Register with Claude Code:
-  `claude mcp add fleet-synapse -- python /abs/path/client/fleet_memory.py`
+  `claude mcp add fleet-memory -- python /abs/path/client/fleet_memory.py`
 
 ## Two Pipelines - Pick One
 - **§A Fleet Memory (vector)** - cross-device knowledge. `client/fleet_memory.py`.

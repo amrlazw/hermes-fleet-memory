@@ -186,9 +186,11 @@ def execute_task(task: dict) -> dict:
     if action in {"gpu_batch", "gpu_status_report"}:
         import subprocess
         try:
+            creationflags = 0x08000000 if sys.platform == "win32" else 0
             out = subprocess.check_output(
                 ["nvidia-smi", "--query-gpu=temperature.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
                 text=True,
+                creationflags=creationflags,
             ).strip()
             temp, used, total = [x.strip() for x in out.split(",")]
             return {
@@ -262,7 +264,7 @@ def run_sync():
     final_ledger = (
         "🏁 *WINSTON — EXECUTION REPORT COMPLETE*\n\n"
         + "\n\n".join(completed_reports)
-        + "\n\n_All receipts recorded to Fleet Synapse task plane._"
+        + "\n\n_All receipts recorded to Fleet Memory task plane._"
     )
     telegram_notify(final_ledger)
     logger.info("Fleet ingress sync completed successfully.")

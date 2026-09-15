@@ -88,7 +88,7 @@ def send_setup_beacon(role: str, deploy_mode: str = "interactive"):
             req = urllib.request.Request(
                 "https://fleet.republikus.my/api/telemetry/beacon",
                 data=payload,
-                headers={"Content-Type": "application/json", "User-Agent": "FleetSynapse-Wizard/2.0"},
+                headers={"Content-Type": "application/json", "User-Agent": "FleetMemory-Wizard/2.0"},
                 method="POST"
             )
             with urllib.request.urlopen(req, timeout=3):

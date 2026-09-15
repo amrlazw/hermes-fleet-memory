@@ -70,12 +70,12 @@ except ImportError:
     ToolAnnotations = None
 try:
     from mcp.server.mcpserver import MCPServer as FastMCP
-    mcp = FastMCP("fleet-synapse")
+    mcp = FastMCP("fleet-memory")
     HAS_MCP = True
 except ImportError:
     try:
         from mcp.server.fastmcp import FastMCP
-        mcp = FastMCP("fleet-synapse")
+        mcp = FastMCP("fleet-memory")
         HAS_MCP = True
     except ImportError:
         HAS_MCP = False
@@ -551,15 +551,15 @@ def _make_annotations(read_only: bool, destructive: bool, idempotent: bool, open
 
 # Register FastMCP tools if available
 if HAS_MCP and mcp:
-    fleet_synapse_search = mcp.tool(
-        name="fleet_synapse_search",
-        description="Search fleet synapse on-demand. Query domain is host-enforced by OS environment.",
+    fleet_memory_search_tool = mcp.tool(
+        name="fleet_memory_search",
+        description="Search fleet memory on-demand. Query domain is host-enforced by OS environment.",
         annotations=_make_annotations(read_only=True, destructive=False, idempotent=True, open_world=False)
     )(fleet_memory_search)
 
-    fleet_synapse_store = mcp.tool(
-        name="fleet_synapse_store",
-        description="Store or update architectural notes in fleet synapse. Domain is host-enforced.",
+    fleet_memory_store_tool = mcp.tool(
+        name="fleet_memory_store",
+        description="Store or update architectural notes in fleet memory. Domain is host-enforced.",
         annotations=_make_annotations(read_only=False, destructive=True, idempotent=True, open_world=False)
     )(fleet_memory_store)
 
@@ -569,16 +569,17 @@ if HAS_MCP and mcp:
         annotations=_make_annotations(read_only=True, destructive=False, idempotent=True, open_world=False)
     )(fleet_graph_query)
 
-    # Backwards compatibility aliases
-    mcp.tool(
-        name="fleet_memory_search",
-        description="Alias for fleet_synapse_search.",
+    # Deprecated aliases. The project is Fleet Memory; the "synapse" names are kept
+    # only so existing callers on other nodes do not break. Prefer fleet_memory_*.
+    fleet_synapse_search = mcp.tool(
+        name="fleet_synapse_search",
+        description="Deprecated alias for fleet_memory_search.",
         annotations=_make_annotations(read_only=True, destructive=False, idempotent=True, open_world=False)
     )(fleet_memory_search)
 
-    mcp.tool(
-        name="fleet_memory_store",
-        description="Alias for fleet_synapse_store.",
+    fleet_synapse_store = mcp.tool(
+        name="fleet_synapse_store",
+        description="Deprecated alias for fleet_memory_store.",
         annotations=_make_annotations(read_only=False, destructive=True, idempotent=True, open_world=False)
     )(fleet_memory_store)
 
@@ -983,7 +984,7 @@ def send_anonymous_beacon():
             req = urllib.request.Request(
                 "https://fleet.republikus.my/api/telemetry/beacon",
                 data=payload,
-                headers={"Content-Type": "application/json", "User-Agent": "FleetSynapse-Client/1.0"},
+                headers={"Content-Type": "application/json", "User-Agent": "FleetMemory-Client/1.0"},
                 method="POST"
             )
             with urllib.request.urlopen(req, timeout=3):
@@ -1063,7 +1064,7 @@ def cmd_doctor(args) -> int:
     _apply_overrides(args)
     problems = []
 
-    print("hermes-fleet-synapse doctor")
+    print("hermes-fleet-memory doctor")
     print(f"  python           : {sys.version.split()[0]} ({sys.executable})")
     print(f"  enforced domain  : {ENFORCED_DOMAIN}")
     print(f"  vector target    : {_target_desc()}")
@@ -1184,7 +1185,7 @@ def cmd_init(args) -> int:
 
     print("[5/5] MCP registration snippet...")
     script = os.path.abspath(__file__)
-    print(f"      [OK] Register with: claude mcp add fleet-synapse -- {sys.executable} {script}")
+    print(f"      [OK] Register with: claude mcp add fleet-memory -- {sys.executable} {script}")
     print()
     print("Initialization complete. Verify anytime with --doctor.")
     return 0
@@ -1208,7 +1209,7 @@ def cmd_serve(args) -> int:
             _eprint("  Start anyway      : --serve")
             _eprint("")
             _eprint("  Register with Claude Code:")
-            _eprint(f"    claude mcp add fleet-synapse -- {sys.executable} {os.path.abspath(__file__)}")
+            _eprint(f"    claude mcp add fleet-memory -- {sys.executable} {os.path.abspath(__file__)}")
             return 2
         if _stdin_is_devnull():
             _eprint("[FAIL] stdin is the null device, so no MCP client can ever talk to")
@@ -1216,7 +1217,7 @@ def cmd_serve(args) -> int:
             _eprint("       Did you mean --doctor or --init?")
             return 2
 
-    _eprint("fleet-synapse MCP server ready; waiting for JSON-RPC on stdin. Ctrl-C to stop.")
+    _eprint("fleet-memory MCP server ready; waiting for JSON-RPC on stdin. Ctrl-C to stop.")
     started = time.time()
     mcp.run()
     if time.time() - started < 2.0:
@@ -1233,7 +1234,7 @@ def _build_parser():
     p = argparse.ArgumentParser(
         prog="fleet_memory.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="Hermes Fleet Synapse - distributed vector memory over a FastMCP stdio server.",
+        description="Hermes Fleet Memory - distributed vector memory over a FastMCP stdio server.",
         epilog=(
             "Typical use:\n"
             "  --doctor                      bounded health check (safe, always exits)\n"
@@ -1262,7 +1263,7 @@ def _build_parser():
     p.add_argument("--host", help="Qdrant host (default 127.0.0.1).")
     p.add_argument("--port", type=int, help="Qdrant port (default 6333).")
     p.add_argument("--force", action="store_true", help="Overwrite an existing .env during --init.")
-    p.add_argument("--version", action="version", version=f"hermes-fleet-synapse {FLEET_VERSION}")
+    p.add_argument("--version", action="version", version=f"hermes-fleet-memory {FLEET_VERSION}")
     return p
 
 

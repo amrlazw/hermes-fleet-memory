@@ -1,11 +1,11 @@
 <div align="center">
 
 <a href="https://github.com/amrlazw/hermes-fleet-memory">
-  <img src="assets/banner.svg" alt="Hermes Fleet Memory & Synapse Mesh" width="100%">
+  <img src="assets/banner.svg" alt="Hermes Fleet Memory" width="100%">
 </a>
 
 <p align="center">
-  <a href="https://fleet.republikus.my/api/telemetry/badge.svg"><img src="https://fleet.republikus.my/api/telemetry/badge.svg" alt="Fleet Synapse Badge"></a>
+  <a href="https://fleet.republikus.my/api/telemetry/badge.svg"><img src="https://fleet.republikus.my/api/telemetry/badge.svg" alt="Fleet Memory Badge"></a>
   <a href="https://m8ven.ai/mcp/amrlazw-hermes-fleet-memory-nnsvq2"><img src="https://m8ven.ai/badge/mcp/amrlazw-hermes-fleet-memory-nnsvq2" alt="M8ven Trust Score"></a>
   <a href="https://github.com/amrlazw/hermes-fleet-memory/actions"><img src="https://img.shields.io/badge/CI_BUILD-PASSING-059669?style=flat-square&logo=githubactions&logoColor=white&labelColor=111827" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/LICENSE-MIT-3b82f6?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=111827" alt="License"></a>
@@ -94,7 +94,7 @@ python client/fleet_memory.py --doctor
 python client/fleet_memory.py --init --domain personal
 
 # 3. register the server
-claude mcp add fleet-synapse -- python /absolute/path/to/hermes-fleet-synapse/client/fleet_memory.py
+claude mcp add fleet-memory -- python /absolute/path/to/hermes-fleet-memory/client/fleet_memory.py
 ```
 
 *You now have all 12 FastMCP tools active for on-demand vector memory retrieval and execution directly inside your AI agent!*
@@ -118,9 +118,9 @@ claude mcp add fleet-synapse -- python /absolute/path/to/hermes-fleet-synapse/cl
 
 ### What is Paradigm E++? (For Architects & Engineers)
 
-**Paradigm E++** (*Epistemic State, Vector Embeddings, Distributed Execution Mesh*) is the formal architectural specification underlying Hermes Fleet Synapse:
+**Paradigm E++** (*Epistemic State, Vector Embeddings, Distributed Execution Mesh*) is the formal architectural specification underlying Hermes Fleet Memory:
 
-1. **Zero Ambient Prompt Bloat (`memory.provider: none`):** Memory is never ambiently stuffed into the LLM system prompt. Retrieval is on-demand via explicit FastMCP vector searches (`fleet_synapse_search` / `fleet_memory_search`), cutting prompt costs to zero for turns where memory is unnecessary.
+1. **Zero Ambient Prompt Bloat (`memory.provider: none`):** Memory is never ambiently stuffed into the LLM system prompt. Retrieval is on-demand via explicit FastMCP vector searches (`fleet_memory_search`), cutting prompt costs to zero for turns where memory is unnecessary.
 2. **Deterministic State Resolution (UUID5 + LWW):** Overwrites stale facts in-place using deterministic DNS-namespace UUID5 hashes (`domain:client_id:slot_name`), combined with **Last-Write-Wins (LWW)** timestamped validation to prevent out-of-order split-brain corruption.
 3. **Infrastructure-Enforced Domain Firewalls (`FLEET_HARD_DOMAIN`):** Strict client-level boundary gates prevent enterprise data from cross-contaminating personal workstations, eliminating reliance on probabilistic LLM compliance.
 

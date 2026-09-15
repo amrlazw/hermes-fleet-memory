@@ -130,7 +130,7 @@ class TestMCPToolsCoverage(unittest.TestCase):
 
     @patch("fleet_memory.get_client")
     @patch("fleet_memory.get_embedder")
-    def test_fleet_synapse_search(self, mock_get_embedder, mock_client):
+    def test_fleet_memory_search_tool(self, mock_get_embedder, mock_client):
         import fleet_memory
         mock_embedder = MagicMock()
         mock_embedder.embed.return_value = [[0.1] * 384]
@@ -146,7 +146,7 @@ class TestMCPToolsCoverage(unittest.TestCase):
 
     @patch("fleet_memory.get_client")
     @patch("fleet_memory.get_embedder")
-    def test_fleet_synapse_store(self, mock_get_embedder, mock_client):
+    def test_fleet_memory_store_tool(self, mock_get_embedder, mock_client):
         import fleet_memory
         mock_embedder = MagicMock()
         mock_embedder.embed.return_value = [[0.1] * 384]
