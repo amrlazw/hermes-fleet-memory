@@ -668,7 +668,7 @@ if HAS_MCP and mcp:
     @mcp.tool(
         name="desktop_download_file",
         description="Download an authorized binary file (PDF, zip, doc) from remote workstation to a local path on the VPS.",
-        annotations=_make_annotations(read_only=True, destructive=False, idempotent=False, open_world=True)
+        annotations=_make_annotations(read_only=False, destructive=False, idempotent=False, open_world=True)
     )
     def desktop_download_file(remote_path: str, local_destination: str = "") -> Dict[str, Any]:
         """Stream and download an authorized file directly from the workstation."""
@@ -714,7 +714,7 @@ if HAS_MCP and mcp:
     @mcp.tool(
         name="desktop_archive_folder",
         description="Archive and zip an authorized directory on remote workstation, then stream-download it to the VPS.",
-        annotations=_make_annotations(read_only=True, destructive=False, idempotent=False, open_world=True)
+        annotations=_make_annotations(read_only=False, destructive=False, idempotent=False, open_world=True)
     )
     def desktop_archive_folder(remote_dir: str, local_destination: str = "") -> Dict[str, Any]:
         """Zip a remote directory on the workstation and download the resulting archive."""
