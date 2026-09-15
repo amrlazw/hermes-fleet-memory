@@ -53,6 +53,16 @@ pip3 install "mcp[cli]" qdrant-client fastembed python-dotenv
 
 ### A.2 Autonomous Initialization (One Command)
 
+> **Agents: never run `client/fleet_memory.py` with no arguments.** Bare, it is an MCP
+> stdio server that blocks forever on stdin and will consume your entire tool timeout
+> with no output. Every command below terminates on its own. Run `--doctor` first; it is
+> bounded, non-destructive, and exits non-zero when something is wrong.
+
+```bash
+python client/fleet_memory.py --doctor
+```
+
+
 ```bash
 # Enterprise work PC / corporate laptop
 python client/fleet_memory.py --init --domain work
