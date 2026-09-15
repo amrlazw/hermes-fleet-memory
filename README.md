@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://fleet.republikus.my/api/telemetry/badge.svg"><img src="https://fleet.republikus.my/api/telemetry/badge.svg" alt="Fleet Synapse Badge"></a>
-  <a href="https://m8ven.ai/mcp/amrlazw-hermes-fleet-memory-nnsvq2"><img src="https://m8ven.ai/badge/mcp/amrlazw-hermes-fleet-memory-nnsvq2?variant=verified" alt="M8ven Verified"></a>
+  <a href="https://m8ven.ai/mcp/amrlazw-hermes-fleet-memory-nnsvq2"><img src="https://m8ven.ai/badge/mcp/amrlazw-hermes-fleet-memory-nnsvq2" alt="M8ven Trust Score"></a>
   <a href="https://github.com/amrlazw/hermes-fleet-memory/actions"><img src="https://img.shields.io/badge/CI_BUILD-PASSING-059669?style=flat-square&logo=githubactions&logoColor=white&labelColor=111827" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/LICENSE-MIT-3b82f6?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=111827" alt="License"></a>
   <a href="PRIVACY.md"><img src="https://img.shields.io/badge/PRIVACY-POLICY-10b981?style=flat-square&logo=shield&logoColor=white&labelColor=111827" alt="Privacy Policy"></a>
