@@ -51,6 +51,12 @@ def prompt_choice(question: str, options: list[tuple[str, str]], default_idx: in
             return options[int(choice) - 1][0]
         print(f"{RED}Invalid selection. Please choose between 1 and {len(options)}.{RESET}")
 
+def hint(*lines: str) -> None:
+    """Where to find the value the next prompt asks for."""
+    for line in lines:
+        print(f"  {DIM}↳ {line}{RESET}")
+
+
 def prompt_input(question: str, default: str = "") -> str:
     def_str = f" {DIM}(default: {default}){RESET}" if default else ""
     val = input(f"{BOLD}? {question}{def_str}: {RESET}").strip()
@@ -396,6 +402,8 @@ def main():
         tunnel_key = secrets.token_hex(32)
         print("Generated three separate 256-bit secrets (Qdrant, tunnel, desktop bridge).\n")
 
+        hint("A domain whose DNS A record points at this VPS (e.g. brain.example.com), or the VPS public IP.",
+             "The public IP is on your cloud provider's instance page. Member nodes connect to wss://<this>/tunnel.")
         domain_name = prompt_input("Enter your Public Domain or VPS IP", "brain.example.com")
         deploy_method = prompt_choice(
             "How would you like to run the Hub services?",
@@ -447,20 +455,47 @@ FLEET_HARD_DOMAIN=all
     bridge_key = secrets.token_hex(32)
     if fleet_size == "pair":
         print(f"\n{CYAN}--- Configuring Managed Cloud Sync (Qdrant Cloud) ---{RESET}")
+        hint("Sign in at https://cloud.qdrant.io and open your cluster (create a free 1GB one if you have none).",
+             "Copy its endpoint URL from the cluster page. It ends in :6333.",
+             "Your second machine uses the same URL and key.")
         qdrant_url = prompt_input("Enter your Qdrant Cloud URL (e.g. https://xxxx.cloud.qdrant.io:6333)", "https://xxxx.cloud.qdrant.io:6333")
+        hint("Create one in the cluster's API Keys section. It is shown only once:",
+             "if you did not save it, create a new key rather than searching for the old one.")
         cluster_secret = prompt_input("Enter your Qdrant Cloud API Key")
         hub_url = ""
+    elif fleet_size == "standalone":
+        # One machine: no hub, tunnel or bridge to join, so none of their keys are asked for.
+        print(f"\n{CYAN}--- Configuring Local Memory (single machine) ---{RESET}")
+        print(f"{DIM}Point this at a Qdrant running on this machine, or at a Qdrant Cloud cluster.{RESET}")
+        hint("Qdrant running on this machine? Keep the default.",
+             "No Qdrant yet? Keep the default; the Docker command to start one is shown at the end.",
+             "Using Qdrant Cloud instead? Paste your cluster's endpoint URL from https://cloud.qdrant.io.")
+        qdrant_url = prompt_input("Enter your Qdrant URL", "http://127.0.0.1:6333")
+        hint("Only needed if you started Qdrant with QDRANT__SERVICE__API_KEY set, or for Qdrant Cloud",
+             "(the cluster's API Keys section). A plain local Docker Qdrant has none: leave it blank.")
+        cluster_secret = prompt_input("Enter your Qdrant API Key (blank if your local Qdrant has none)")
+        hub_url = ""
     else:
+        print(f"{DIM}Tip: the values below were printed under 'Node Join Credentials' at the end of hub setup.")
+        print(f"Lost them? They are in server/.env on the hub:  grep -E 'QDRANT_KEY|TUNNEL_KEY|BRIDGE_KEY' server/.env{RESET}\n")
+        hint("'Hub Endpoint' in the join credentials: wss://<your hub domain>/tunnel")
         hub_url = prompt_input("Enter your Hub WebSocket Ingress URL", "wss://brain.example.com/tunnel")
+        hint("'Qdrant Key' in the join credentials, or FLEET_QDRANT_KEY in the hub's server/.env")
         cluster_secret = prompt_input("Enter the Hub Qdrant Key (from Hub setup)")
+        hint("'Tunnel Key' in the join credentials, or FLEET_TUNNEL_KEY in the hub's server/.env.",
+             "It is the X-Fleet-Key value in the hub's Caddyfile. Hubs set up before tunnel keys existed have",
+             "none: leave it blank and the tunnel falls back to the Qdrant key, with a warning.")
         tunnel_key = prompt_input("Enter the Hub Tunnel Key (from Hub setup)")
+        hint("'Bridge Key' in the join credentials, or FLEET_BRIDGE_KEY in the hub's server/.env.",
+             "Leave it blank to generate one here, then set the same value on the hub.")
         bridge_key = prompt_input("Enter the Hub Bridge Key (from Hub setup, blank to generate one)")
         if not bridge_key:
             bridge_key = secrets.token_hex(32)
             print(f"{YELLOW}Generated bridge key: {bridge_key}")
             print(f"Set FLEET_BRIDGE_KEY to this value on the hub too, or desktop_* tools cannot authenticate.{RESET}")
 
-    if not cluster_secret:
+    # A local Qdrant commonly runs without an API key; inventing one would only break auth.
+    if not cluster_secret and fleet_size != "standalone":
         cluster_secret = secrets.token_hex(32)
         print(f"{YELLOW}No secret entered. Generated standalone secret: {cluster_secret}{RESET}")
 
@@ -471,30 +506,33 @@ FLEET_HARD_DOMAIN=all
             ("work", "work      — Restricted to corporate/enterprise data"),
             ("shared", "shared    — Standard collaborative developer workspace")
         ],
-        default_idx=0 if role == "desktop" else 1
+        default_idx=0 if role in ("desktop", "standalone") else 1
     )
 
     client_id = prompt_input(
         "Give this node a custom name (e.g. brain-vps, my-rig, work-laptop, macbook)",
-        "personal-pc" if role == "desktop" else "work-laptop"
+        "work-laptop" if role == "edge" else "personal-pc"
     )
 
     # Parse host/url for Qdrant Cloud vs Self-Hosted Hub
-    if fleet_size == "pair" and qdrant_url.startswith("http"):
+    if fleet_size in ("pair", "standalone") and qdrant_url.startswith("http"):
         clean_url = qdrant_url.replace("https://", "").replace("http://", "").rstrip("/")
         if ":" in clean_url:
             q_host, q_port = clean_url.split(":")
         else:
             q_host, q_port = clean_url, "6333"
         use_https = "true" if qdrant_url.startswith("https") else "false"
-        node_env = f"""# Hermes Fleet Memory — 2-Node Cloud Configuration (Qdrant Cloud)
+        title = ("Single-Machine Configuration" if fleet_size == "standalone"
+                 else "2-Node Cloud Configuration (Qdrant Cloud)")
+        node_env = f"""# Hermes Fleet Memory — {title}
 FLEET_HARD_DOMAIN={domain}
 FLEET_CLIENT_ID={client_id}
 FLEET_QDRANT_HOST={q_host}
 FLEET_QDRANT_PORT={q_port}
-FLEET_QDRANT_KEY={cluster_secret}
 FLEET_QDRANT_HTTPS={use_https}
 """
+        if cluster_secret:
+            node_env += f"FLEET_QDRANT_KEY={cluster_secret}\n"
     else:
         node_env = f"""# Hermes Fleet Memory — Member Node Configuration
 FLEET_HARD_DOMAIN={domain}
@@ -535,16 +573,17 @@ FLEET_SERVER_HOST={hub_url.replace('wss://', '').replace('/tunnel', '')}
     script_abs_path = str((Path("client/fleet_memory.py")).resolve())
     python_bin = sys.executable
 
+    mcp_env = {"FLEET_HARD_DOMAIN": domain}
+    if cluster_secret:
+        mcp_env["FLEET_QDRANT_KEY"] = cluster_secret
+
     if framework == "claude":
         claude_snippet = {
             "mcpServers": {
                 "fleet-memory": {
                     "command": python_bin,
                     "args": [script_abs_path],
-                    "env": {
-                        "FLEET_HARD_DOMAIN": domain,
-                        "FLEET_QDRANT_KEY": cluster_secret
-                    }
+                    "env": mcp_env
                 }
             }
         }
@@ -560,12 +599,16 @@ FLEET_SERVER_HOST={hub_url.replace('wss://', '').replace('/tunnel', '')}
     args:
       - "{script_abs_path}"
     env:
-      FLEET_HARD_DOMAIN: "{domain}"
-      FLEET_QDRANT_KEY: "{cluster_secret}"
-""")
+""" + "".join(f'      {k}: "{v}"\n' for k, v in mcp_env.items()))
 
     # OS-specific launcher assistance
-    if fleet_size == "pair":
+    if fleet_size == "standalone":
+        print(f"{CYAN}{BOLD}=== [Stage 4: Local Memory] ==={RESET}")
+        print(f"  • {GREEN}No hub, tunnel or bridge needed on a single machine.{RESET}")
+        print("  • Qdrant must be running at the URL you entered. No Qdrant yet? With Docker:")
+        print(f"    {CYAN}docker run -d -p 127.0.0.1:6333:6333 -v qdrant_data:/qdrant/storage qdrant/qdrant{RESET}")
+        print(f"  • Linking more machines later? Re-run {BOLD}python fleet_wizard.py{RESET} and choose 2 or 3+ nodes.")
+    elif fleet_size == "pair":
         print(f"{CYAN}{BOLD}=== [Stage 4: Zero-DevOps Status] ==={RESET}")
         print(f"  • {GREEN}No local daemon or tunnel needed!{RESET}")
         print("  • Both machines connect directly to your encrypted Qdrant Cloud cluster.")

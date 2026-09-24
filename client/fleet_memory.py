@@ -1295,7 +1295,11 @@ def cmd_doctor(args) -> int:
         print("           stolen database key grants bridge access. Generate a separate one.")
     else:
         print("    [OK]   bridge key is separate from the Qdrant key")
-    if not FLEET_KEY:
+    # The token only matters once a control plane is configured. Without one, the Qdrant
+    # fallback is never sent anywhere, so warning about it would be noise on every new install.
+    if not FLEET_TASKS_URL:
+        print("    [INFO] no control plane (FLEET_TASKS_URL unset) - fleet_task_* tools are disabled.")
+    elif not FLEET_KEY:
         print("    [INFO] no control-plane token - fleet_task_* tools are disabled on this node.")
     elif _task_key_warning():
         print(f"    [WARN] control-plane token comes from {FLEET_KEY_SOURCE} and equals the Qdrant key.")
