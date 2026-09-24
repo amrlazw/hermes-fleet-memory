@@ -21,15 +21,21 @@ key never appears on a command line.
 python examples/bot-mode-local/dashboard.py     # then open http://127.0.0.1:8130
 ```
 
-- **Office:** each agent sits at a desk in a small 3D room. An agent types, with its
-  screen lit, only while it is actually working. An envelope crosses the room when
-  one agent messages another. Drag to turn the room; click an agent to address it.
-- **Agents table:** what each one is doing now, when it was last active, and how
-  many messages it has sent and received.
-- **Conversation:** every message and reply, from the agents' own session databases.
-- **Give a task:** pick an agent, write the task, send. It arrives as a message
-  from you; the agent may bring in its peers, and the task list shows its latest
-  answer.
+The whole screen is the 3D office. There is no side panel:
+
+- **Agents** sit at desks. An agent types, with its screen lit and "Working" over its
+  head, only while it is actually working. Speech bubbles show what it says and who it
+  is messaging, and an envelope crosses the room when one agent messages another.
+  Drag to turn the room; click an agent to talk to it.
+- **Chat box** at the bottom: pick who it goes to, type, press Enter. Above it, the
+  answer card follows your last message: "working on it" while the agent (and any
+  peer it asked) is still busy, then the actual answer, which stays until you send
+  something else.
+- **History** (top right, closed by default) is the full conversation in chat form:
+  your messages on the right, agents on the left, agent-to-agent messages between.
+- **Chips** at the top left show each agent's state and pick it as the recipient.
+
+Everything shown comes from the agents' own session databases.
 
 The server binds `127.0.0.1` only. A task submission needs this run's token
 (embedded in the page) and the dashboard's own `Origin`, so another website open

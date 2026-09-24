@@ -6,139 +6,136 @@
 <meta name="dashboard-token" content="__TOKEN__">
 <title>Fleet Office</title>
 <style>
-  /* Neutral paper base, one accent (the send action), and one identity colour per agent.
-     System fonts: this is a local tool and should not fetch web fonts. */
+  /* The room is the interface. Everything else floats over it: who is here (top left),
+     history (top right, closed by default), and the chat box (bottom).
+     Neutral paper base, one accent for sending, one identity colour per agent.
+     System fonts: a local tool should not fetch web fonts. */
   :root {
     --bg: #f5f3ee; --surface: #ffffff; --ink: #1d1f22; --muted: #5d6166; --line: #e3dfd6;
-    --accent: #1f6b58; --accent-ink: #ffffff; --warn: #a3521a; --ok: #2c7a3f;
+    --accent: #1f6b58; --accent-ink: #ffffff; --warn: #a3521a; --ok: #2c7a3f; --mine: #e4f1ec;
     --floor: #e7e0d2; --wood: #b88a5c; --chair: #4a4f57; --skin: #e9c9a6;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #15171a; --surface: #1d2024; --ink: #e9e7e2; --muted: #a2a6ac; --line: #31353b;
-      --accent: #5bbf9f; --accent-ink: #0d1a15; --warn: #e39a62; --ok: #6cc486;
+      --bg: #15171a; --surface: #1f2226; --ink: #e9e7e2; --muted: #a2a6ac; --line: #353a40;
+      --accent: #5bbf9f; --accent-ink: #0d1a15; --warn: #e39a62; --ok: #6cc486; --mine: #1f3a31;
       --floor: #25282c; --wood: #6d5641; --chair: #3a3e45; --skin: #d9b58f;
       color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
-    --bg: #15171a; --surface: #1d2024; --ink: #e9e7e2; --muted: #a2a6ac; --line: #31353b;
-    --accent: #5bbf9f; --accent-ink: #0d1a15; --warn: #e39a62; --ok: #6cc486;
+    --bg: #15171a; --surface: #1f2226; --ink: #e9e7e2; --muted: #a2a6ac; --line: #353a40;
+    --accent: #5bbf9f; --accent-ink: #0d1a15; --warn: #e39a62; --ok: #6cc486; --mine: #1f3a31;
     --floor: #25282c; --wood: #6d5641; --chair: #3a3e45; --skin: #d9b58f;
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; }
-  body {
-    background: var(--bg); color: var(--ink);
-    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    display: grid; grid-template-rows: auto 1fr; min-height: 100vh;
-  }
-  header {
-    display: flex; align-items: baseline; gap: 16px; padding: 14px 20px;
-    border-bottom: 1px solid var(--line); flex-wrap: wrap;
-  }
-  header h1 { font-size: 18px; margin: 0; font-weight: 650; }
-  header .where { color: var(--muted); font-size: 13px; }
-  header .spacer { flex: 1; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   button { font: inherit; color: inherit; }
-  .ghost {
-    background: none; border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer;
-  }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; min-height: 0; }
-  #scene { position: relative; min-height: 420px; overflow: hidden; }
+  #scene { position: fixed; inset: 0; }
   #scene canvas { display: block; width: 100%; height: 100%; }
-  .overlay { position: absolute; inset: 0; pointer-events: none; }
-  .tag {
-    position: absolute; transform: translate(-50%, -100%); white-space: nowrap; text-align: center;
-    font-size: 13px; line-height: 1.25;
+  .overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 8px 24px rgb(0 0 0 / .14);
   }
+
+  /* ---- labels and speech bubbles that follow the agents ---- */
+  .tag { position: absolute; transform: translate(-50%, -100%); text-align: center; white-space: nowrap; font-size: 13px; line-height: 1.25; }
   .tag b { display: block; font-size: 14px; }
   .tag span { color: var(--muted); }
   .tag.working span { color: var(--ok); font-weight: 600; }
   .tag.offline { opacity: .55; }
+  .dots i { display: inline-block; width: 4px; height: 4px; margin: 0 1px; border-radius: 50%; background: currentColor; vertical-align: middle; }
+  .tag.working .dots i { animation: blink 1.2s infinite; }
+  .tag.working .dots i:nth-child(2) { animation-delay: .2s; }
+  .tag.working .dots i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 60%, 100% { opacity: .25; } 30% { opacity: 1; } }
   .bubble {
-    position: absolute; transform: translate(-50%, calc(-100% - 44px)); max-width: 260px;
-    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
-    padding: 8px 11px; font-size: 13px; box-shadow: 0 6px 18px rgb(0 0 0 / .12);
-    transition: opacity .3s;
+    position: absolute; transform: translate(-50%, calc(-100% - 46px)); width: max-content; max-width: 280px;
+    padding: 9px 12px; font-size: 13.5px; transition: opacity .35s; pointer-events: auto;
   }
-  .bubble small { display: block; color: var(--muted); font-size: 11.5px; margin-bottom: 2px; }
-  .scene-note {
-    position: absolute; left: 16px; bottom: 14px; color: var(--muted); font-size: 12.5px;
-    pointer-events: none;
-  }
-  .scene-fallback {
-    position: absolute; inset: 0; display: grid; place-items: center; padding: 24px;
-    color: var(--muted); text-align: center;
+  .bubble small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+  .bubble::after {
+    content: ""; position: absolute; left: 50%; bottom: -7px; width: 12px; height: 12px; margin-left: -6px;
+    background: var(--surface); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); transform: rotate(45deg);
   }
 
-  aside {
-    border-left: 1px solid var(--line); background: var(--surface);
-    display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0;
+  /* ---- top bar: who is here, theme, history ---- */
+  .top { position: fixed; top: 14px; left: 16px; right: 16px; display: flex; gap: 10px; align-items: flex-start; pointer-events: none; }
+  .top > * { pointer-events: auto; }
+  .title { padding: 8px 12px; font-weight: 650; }
+  .title span { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
+  #roster { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 999px; font-size: 13.5px;
   }
-  section { padding: 16px 18px; }
-  section + section { border-top: 1px solid var(--line); }
-  h2 { font-size: 13px; font-weight: 650; margin: 0 0 10px; color: var(--muted); }
-
-  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-  th { text-align: left; font-weight: 600; color: var(--muted); padding: 0 6px 6px 0; font-size: 12px; }
-  td { padding: 7px 6px 7px 0; border-top: 1px solid var(--line); vertical-align: top; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .who { display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; cursor: pointer; }
-  .who:hover b { text-decoration: underline; }
+  .chip[aria-pressed="true"] { border-color: var(--ink); font-weight: 600; }
+  .chip small { color: var(--muted); font-weight: 400; }
+  .chip.working small { color: var(--ok); font-weight: 600; }
   .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
-  .state { display: inline-flex; align-items: center; gap: 6px; }
-  .state i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .state.working i { background: var(--ok); }
-  .state.offline { color: var(--muted); }
-  .state.offline i { background: transparent; border: 1.5px solid var(--muted); }
+  .spacer { flex: 1; }
+  .btn { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; font-size: 13.5px; }
 
-  #feed-wrap { overflow: auto; }
-  #feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-  #feed li { font-size: 13.5px; }
-  #feed .route { font-weight: 600; }
-  #feed .route em { font-style: normal; color: var(--muted); font-weight: 400; }
-  #feed time { color: var(--muted); font-size: 12px; margin-left: 6px; }
-  #feed p { margin: 3px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-  #feed li.task p { border-left: 2px solid var(--accent); padding-left: 8px; }
-  .empty { color: var(--muted); font-size: 13.5px; margin: 0; }
-
-  form { display: grid; gap: 10px; }
-  .targets { display: flex; gap: 6px; flex-wrap: wrap; }
-  .targets button {
-    border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 5px 11px; cursor: pointer;
-    display: inline-flex; align-items: center; gap: 7px;
-  }
-  .targets button[aria-pressed="true"] { border-color: var(--ink); background: var(--surface); font-weight: 600; }
+  /* ---- chat box and the answer card above it ---- */
+  .dock { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(680px, calc(100vw - 32px)); display: grid; gap: 10px; }
+  #answer { padding: 12px 14px; display: none; }
+  #answer.show { display: block; }
+  #answer .q { color: var(--muted); font-size: 12.5px; margin: 0 0 4px; }
+  #answer .who { font-weight: 600; }
+  #answer .who.working { color: var(--ok); }
+  #answer p { margin: 2px 0 0; overflow-wrap: anywhere; max-height: 30vh; overflow: auto; }
+  #answer .close { float: right; background: none; border: 0; cursor: pointer; color: var(--muted); padding: 0 0 0 10px; font-size: 13px; }
+  form { padding: 10px; display: grid; gap: 8px; }
+  .to { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+  .to button { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 3px 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; color: var(--ink); }
+  .to button[aria-pressed="true"] { border-color: var(--ink); font-weight: 600; background: var(--surface); }
+  .row { display: flex; gap: 8px; align-items: flex-end; }
   textarea {
-    font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
-    padding: 9px 11px; min-height: 76px; resize: vertical;
+    flex: 1; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 11px; resize: none; min-height: 42px; max-height: 140px;
   }
-  .row { display: flex; align-items: center; gap: 10px; }
-  .send {
-    background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px;
-    padding: 9px 16px; font-weight: 650; cursor: pointer;
-  }
+  .send { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 10px 16px; font-weight: 650; cursor: pointer; white-space: nowrap; }
   .send:disabled { opacity: .5; cursor: not-allowed; }
-  #form-msg { color: var(--muted); font-size: 12.5px; }
+  #form-msg { font-size: 12.5px; color: var(--muted); min-height: 1em; }
   #form-msg.error { color: var(--warn); }
-  #tasks { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; font-size: 13px; }
-  #tasks .st { font-weight: 600; }
-  #tasks .st.sending { color: var(--muted); }
-  #tasks .st.done { color: var(--ok); }
-  #tasks .st.failed { color: var(--warn); }
-  #tasks p { margin: 2px 0 0; color: var(--muted); overflow-wrap: anywhere; }
 
-  @media (max-width: 900px) {
-    main { grid-template-columns: 1fr; }
-    #scene { height: 52vh; min-height: 320px; }
-    aside { border-left: 0; border-top: 1px solid var(--line); }
+  /* ---- history drawer (chat style), closed by default ---- */
+  #history {
+    position: fixed; top: 70px; right: 16px; bottom: 18px; width: min(400px, calc(100vw - 32px));
+    display: none; grid-template-rows: auto minmax(0, 1fr);
   }
-  @media (prefers-reduced-motion: reduce) { .bubble { transition: none; } }
+  #history.open { display: grid; }
+  #history header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  #history header b { margin-right: auto; }
+  .filters button { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; cursor: pointer; }
+  .filters button[aria-pressed="true"] { border-color: var(--ink); font-weight: 600; }
+  #log { overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 85%; padding: 8px 11px; border-radius: 12px; font-size: 13.5px; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .msg small { display: block; font-size: 11.5px; color: var(--muted); margin-bottom: 2px; white-space: normal; }
+  .msg.agent { align-self: flex-start; background: var(--bg); border: 1px solid var(--line); }
+  .msg.mine { align-self: flex-end; background: var(--mine); }
+  .msg.between { align-self: center; max-width: 92%; font-size: 12.5px; color: var(--muted); text-align: center; padding: 2px 6px; }
+  .msg.between b { color: var(--ink); font-weight: 600; }
+  .typing { font-size: 12.5px; color: var(--ok); }
+  .empty { color: var(--muted); font-size: 13.5px; }
+
+  .fallback { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; color: var(--muted); text-align: center; pointer-events: none; }
+  .hint { position: fixed; left: 16px; bottom: 18px; font-size: 12px; color: var(--muted); pointer-events: none; max-width: 200px; }
+
+  @media (max-width: 760px) {
+    .title span, .hint { display: none; }
+    #history { top: auto; height: 60vh; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bubble { transition: none; }
+    .tag.working .dots i { animation: none; opacity: 1; }
+  }
 </style>
 <script type="importmap">
 { "imports": {
@@ -148,49 +145,44 @@
 </script>
 </head>
 <body>
-<header>
-  <h1>Fleet Office</h1>
-  <span class="where" id="where">Local sandbox, reading from this machine only</span>
+<div id="scene" aria-label="3D office showing each agent at a desk"><div class="overlay" id="overlay"></div></div>
+
+<div class="top">
+  <div class="title card">Fleet Office<span id="where">Local sandbox</span></div>
+  <div id="roster" role="group" aria-label="Agents"></div>
   <span class="spacer"></span>
-  <button class="ghost" id="theme" type="button">Theme: system</button>
-</header>
-<main>
-  <div id="scene" aria-label="3D office showing each agent at a desk">
-    <div class="overlay" id="overlay"></div>
-    <div class="scene-note">Drag to turn the room. Click an agent to give it a task.</div>
-  </div>
-  <aside>
-    <section>
-      <h2>Agents</h2>
-      <table>
-        <thead><tr><th>Agent</th><th>Now</th><th>Last active</th><th class="num">Sent</th><th class="num">Got</th></tr></thead>
-        <tbody id="agents"><tr><td colspan="5" class="empty">Connecting to the dashboard server…</td></tr></tbody>
-      </table>
-    </section>
-    <section id="feed-wrap">
-      <h2>Conversation</h2>
-      <ul id="feed" aria-live="polite"></ul>
-    </section>
-    <section>
-      <h2>Give a task</h2>
-      <form id="task-form">
-        <div class="targets" id="targets" role="group" aria-label="Send to"></div>
-        <textarea id="task-text" aria-label="Task" maxlength="2000" placeholder="What should they do? For example: check whether a gpu_batch can run tonight and agree a time with each other."></textarea>
-        <div class="row">
-          <button class="send" id="send" type="submit" disabled>Send task</button>
-          <span id="form-msg">Pick an agent first.</span>
-        </div>
-      </form>
-      <ul id="tasks"></ul>
-    </section>
-  </aside>
-</main>
+  <button class="btn" id="theme" type="button">Theme: system</button>
+  <button class="btn" id="history-btn" type="button" aria-expanded="false" aria-controls="history">History</button>
+</div>
+
+<div class="hint">Drag to turn the room. Click an agent to talk to it.</div>
+
+<aside id="history" class="card" aria-label="Conversation history">
+  <header>
+    <b>History</b>
+    <span class="filters" id="filters"></span>
+    <button class="btn" id="history-close" type="button">Close</button>
+  </header>
+  <div id="log" aria-live="polite"></div>
+</aside>
+
+<div class="dock">
+  <div id="answer" class="card" aria-live="polite"></div>
+  <form id="task-form" class="card">
+    <div class="to"><span>To</span><span id="targets" role="group" aria-label="Send to"></span></div>
+    <div class="row">
+      <textarea id="task-text" rows="1" aria-label="Message" maxlength="2000" placeholder="Pick an agent, then type a message or a task…"></textarea>
+      <button class="send" id="send" type="submit" disabled>Send</button>
+    </div>
+    <div id="form-msg"></div>
+  </form>
+</div>
 
 <script type="module">
-// ------------------------------------------------------------------ data, table, feed, tasks
+// ------------------------------------------------------------------ data, chat box, history
 const TOKEN = document.querySelector('meta[name="dashboard-token"]').content;
 const COLORS = ["#d9822b", "#3a78c2", "#8a5cc2", "#2e9e8f", "#c2455d", "#6b8e23"];
-const state = { agents: [], events: [], tasks: [], selected: null, seen: new Set(), first: true, now: Date.now() / 1000 };
+const state = { agents: [], events: [], tasks: [], selected: null, seen: new Set(), first: true, now: Date.now() / 1000, filter: "all", dismissed: null };
 const colorOf = name => COLORS[Math.max(0, state.agents.findIndex(a => a.name === name)) % COLORS.length];
 const titleOf = name => name === "you" ? "You" : (state.agents.find(a => a.name === name)?.title
   ?? (name ? name[0].toUpperCase() + name.slice(1) : "Someone"));
@@ -198,90 +190,132 @@ window.fleet = { state, colorOf, titleOf };
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-function ago(ts) {
-  if (!ts) return "never";
-  const s = Math.max(0, state.now - ts);
-  if (s < 45) return "just now";
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return new Date(ts * 1000).toLocaleDateString();
-}
-const clock = ts => new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const clock = ts => new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const STATUS = { working: "Working", idle: "Idle", offline: "Offline" };
 
-function renderAgents() {
-  $("agents").innerHTML = state.agents.map(a => `
-    <tr>
-      <td><button class="who" type="button" data-pick="${esc(a.name)}" title="${esc(a.role)}">
-        <span class="swatch" style="background:${colorOf(a.name)}"></span><b>${esc(a.title)}</b></button></td>
-      <td><span class="state ${a.status}"><i></i>${STATUS[a.status]}</span></td>
-      <td>${ago(a.last_ts)}</td>
-      <td class="num">${a.sent}</td><td class="num">${a.received}</td>
-    </tr>`).join("") || `<tr><td colspan="5" class="empty">No agents found. Start them with run_demo.py.</td></tr>`;
-  $("where").textContent = `Local sandbox, ${state.agents.length} agents, reading from this machine only`;
+// A task's answer is the agent's last reply between this task and your next one to the
+// same agent. A message from another agent only belongs to it if the agent reached out
+// first; otherwise it is someone else's thread. Asked a peer and no word back yet means
+// the task is still open.
+function answerTo(t) {
+  const next = state.tasks.filter(o => o.agent === t.agent && o.started > t.started).at(-1);
+  const until = next ? next.started : Infinity;
+  // The task stays open while the agent is waiting on a peer, or has heard back from one
+  // and not yet passed that on. A reply sent while still waiting ("I've asked Chester,
+  // will relay") does not close it.
+  let delegated = false, answer = null, waitingOnPeer = null, owesAnswer = null;
+  for (const e of state.events) {
+    if (e.ts < t.started) continue;
+    if (e.ts >= until) break;
+    if (e.kind === "message" && e.from === t.agent) { delegated = true; waitingOnPeer = e.ts; }
+    else if (e.kind === "message" && e.to === t.agent) { if (!delegated) break; waitingOnPeer = null; owesAnswer = e.ts; }
+    else if (e.kind === "reply" && e.from === t.agent) { answer = e.text; owesAnswer = null; }
+  }
+  const since = waitingOnPeer ?? owesAnswer;
+  const busy = state.agents.some(a => a.status === "working");
+  const open = t.status === "sending" || (since !== null && state.now - since < 600) || (!next && busy && t.status === "done" && state.now - t.started < 600);
+  return { answer: answer || t.reply, open };
+}
+
+function renderRoster() {
+  $("roster").innerHTML = state.agents.map(a => `
+    <button type="button" class="chip ${a.status}" data-pick="${esc(a.name)}" aria-pressed="${state.selected === a.name}" title="${esc(a.role)}">
+      <span class="swatch" style="background:${colorOf(a.name)}"></span>${esc(a.title)} <small>${STATUS[a.status]}</small></button>`).join("");
   $("targets").innerHTML = state.agents.map(a => `
     <button type="button" data-pick="${esc(a.name)}" aria-pressed="${state.selected === a.name}">
       <span class="swatch" style="background:${colorOf(a.name)}"></span>${esc(a.title)}</button>`).join("");
+  $("where").textContent = `${state.agents.length} agents, local sandbox`;
 }
 
-function renderFeed() {
-  const feed = $("feed");
-  if (!state.events.length) {
-    feed.innerHTML = `<li><p class="empty">No messages yet. Give an agent a task below and its conversation shows up here.</p></li>`;
-    return;
-  }
-  const nearBottom = feed.parentElement.scrollHeight - feed.parentElement.scrollTop - feed.parentElement.clientHeight < 60;
-  feed.innerHTML = state.events.map(e => {
-    const route = e.kind === "reply"
-      ? `<span style="color:${colorOf(e.from)}">${esc(titleOf(e.from))}</span> <em>says</em>`
-      : `<span style="color:${e.from === "you" ? "inherit" : colorOf(e.from)}">${esc(titleOf(e.from))}</span> <em>to</em> <span style="color:${colorOf(e.to)}">${esc(titleOf(e.to))}</span>`;
-    return `<li class="${e.kind}"><span class="route">${route}</span><time>${clock(e.ts)}</time><p>${esc(e.text)}</p></li>`;
-  }).join("");
-  if (nearBottom || state.first) feed.parentElement.scrollTop = feed.parentElement.scrollHeight;
+function renderAnswer() {
+  const t = state.tasks[0];
+  const box = $("answer");
+  if (!t || state.dismissed === t.id) { box.className = "card"; return; }
+  const { answer, open } = answerTo(t);
+  const name = esc(titleOf(t.agent));
+  box.className = "card show";
+  box.innerHTML = `<button class="close" type="button" data-dismiss="${t.id}">Hide</button>
+    <p class="q">You asked ${name} at ${clock(t.started)}: ${esc(t.text.slice(0, 140))}</p>
+    ${open
+      ? `<span class="who working">${name} is working on it…</span>${answer ? `<p>${esc(answer)}</p>` : ""}`
+      : t.status === "failed"
+        ? `<span class="who" style="color:var(--warn)">${name} did not finish.</span><p>${esc(answer || "")}</p>`
+        : `<span class="who" style="color:${colorOf(t.agent)}">${name}</span><p>${esc(answer || "(no reply)")}</p>`}`;
 }
 
-function renderTasks() {
-  const LABEL = { sending: "Waiting for an answer…", done: "Answered", failed: "Did not finish" };
-  // The first reply is often "I've asked Chester, will confirm". Show the agent's latest
-  // word since the task instead, so follow-ups from the conversation replace it.
-  const latest = t => [...state.events].reverse()
-    .find(e => e.kind === "reply" && e.from === t.agent && e.ts >= t.started)?.text;
-  $("tasks").innerHTML = state.tasks.slice(0, 5).map(t => `
-    <li><span class="st ${t.status}">${LABEL[t.status]}</span> · ${esc(titleOf(t.agent))} · ${clock(t.started)}
-      <p>${esc((t.status === "sending" ? t.text : (latest(t) || t.reply || t.text)).slice(0, 280))}</p></li>`).join("");
+function renderHistory() {
+  const log = $("log");
+  const f = state.filter;
+  $("filters").innerHTML = ["all", ...state.agents.map(a => a.name)].map(n =>
+    `<button type="button" data-filter="${esc(n)}" aria-pressed="${f === n}">${n === "all" ? "Everyone" : esc(titleOf(n))}</button>`).join(" ");
+  if (!$("history").classList.contains("open")) return;
+  const events = state.events.filter(e => f === "all" || e.from === f || e.to === f);
+  const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  const rows = events.map(e => {
+    if (e.kind === "task" || e.from === "you")
+      return `<div class="msg mine"><small>You to ${esc(titleOf(e.to))} · ${clock(e.ts)}</small>${esc(e.text)}</div>`;
+    if (e.kind === "reply")
+      return `<div class="msg agent"><small style="color:${colorOf(e.from)}">${esc(titleOf(e.from))} · ${clock(e.ts)}</small>${esc(e.text)}</div>`;
+    return `<div class="msg between"><b style="color:${colorOf(e.from)}">${esc(titleOf(e.from))}</b> to <b style="color:${colorOf(e.to)}">${esc(titleOf(e.to))}</b> · ${clock(e.ts)}<br>${esc(e.text)}</div>`;
+  });
+  const typing = state.agents.filter(a => a.status === "working" && (f === "all" || f === a.name))
+    .map(a => `<div class="typing">${esc(a.title)} is working…</div>`);
+  log.innerHTML = rows.concat(typing).join("") || `<p class="empty">Nothing yet. Send an agent a message below and the conversation shows up here.</p>`;
+  if (nearBottom) log.scrollTop = log.scrollHeight;
 }
 
 function select(name) {
   state.selected = name;
-  renderAgents();
+  renderRoster();
   $("send").disabled = !name;
   $("form-msg").className = "";
-  $("form-msg").textContent = name ? `Goes to ${titleOf(name)}. Takes a few seconds to a few minutes.` : "Pick an agent first.";
+  $("form-msg").textContent = "";
+  $("task-text").placeholder = name ? `Message ${titleOf(name)}…` : "Pick an agent, then type a message or a task…";
   if (name) $("task-text").focus();
 }
 document.addEventListener("click", e => {
   const pick = e.target.closest("[data-pick]");
-  if (pick) select(pick.dataset.pick);
+  if (pick) return select(pick.dataset.pick);
+  const filter = e.target.closest("[data-filter]");
+  if (filter) { state.filter = filter.dataset.filter; renderHistory(); $("log").scrollTop = $("log").scrollHeight; return; }
+  const dismiss = e.target.closest("[data-dismiss]");
+  if (dismiss) { state.dismissed = dismiss.dataset.dismiss; renderAnswer(); }
 });
 window.addEventListener("fleet:select", e => select(e.detail));
 
+function toggleHistory(open) {
+  $("history").classList.toggle("open", open);
+  $("history-btn").setAttribute("aria-expanded", String(open));
+  if (open) { renderHistory(); $("log").scrollTop = $("log").scrollHeight; }
+}
+$("history-btn").addEventListener("click", () => toggleHistory(!$("history").classList.contains("open")));
+$("history-close").addEventListener("click", () => toggleHistory(false));
+
+const text = $("task-text");
+text.addEventListener("input", () => { text.style.height = "auto"; text.style.height = `${Math.min(text.scrollHeight, 140)}px`; });
+text.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("task-form").requestSubmit(); }
+});
+
 $("task-form").addEventListener("submit", async e => {
   e.preventDefault();
-  const text = $("task-text").value.trim();
+  const body = text.value.trim();
   const msg = $("form-msg");
-  if (!state.selected || !text) { msg.className = "error"; msg.textContent = "Pick an agent and write the task."; return; }
+  if (!state.selected) { msg.className = "error"; msg.textContent = "Pick who to send it to first."; return; }
+  if (!body) return;
   $("send").disabled = true;
   try {
     const res = await fetch("/api/task", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Dashboard-Token": TOKEN },
-      body: JSON.stringify({ agent: state.selected, text }),
+      body: JSON.stringify({ agent: state.selected, text: body }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || res.statusText);
-    $("task-text").value = "";
-    msg.className = ""; msg.textContent = `Sent to ${titleOf(state.selected)}. Watch the office.`;
-    window.dispatchEvent(new CustomEvent("fleet:event", { detail: { kind: "task", from: "you", to: state.selected, text, local: true } }));
+    text.value = ""; text.style.height = "";
+    msg.className = ""; msg.textContent = "";
+    state.dismissed = null;
+    window.dispatchEvent(new CustomEvent("fleet:event", { detail: { kind: "task", from: "you", to: state.selected, text: body, local: true } }));
     poll();
   } catch (err) {
     msg.className = "error"; msg.textContent = `Not sent: ${err.message}`;
@@ -298,12 +332,14 @@ async function poll() {
     Object.assign(state, { agents: data.agents, events: data.events, tasks: data.tasks, now: data.now });
     const fresh = data.events.filter(e => !state.seen.has(e.id));
     fresh.forEach(e => state.seen.add(e.id));
-    renderAgents(); renderFeed(); renderTasks();
+    renderRoster(); renderAnswer(); renderHistory();
     window.dispatchEvent(new CustomEvent("fleet:state", { detail: state }));
     if (!state.first) fresh.forEach(e => window.dispatchEvent(new CustomEvent("fleet:event", { detail: e })));
     state.first = false;
+    $("form-msg").classList.contains("error") && $("form-msg").textContent.startsWith("Lost") && ($("form-msg").textContent = "");
   } catch (err) {
-    $("agents").innerHTML = `<tr><td colspan="5" class="empty">Lost contact with the dashboard server (${esc(err.message)}). Is dashboard.py still running?</td></tr>`;
+    $("form-msg").className = "error";
+    $("form-msg").textContent = `Lost contact with the dashboard server (${err.message}). Is dashboard.py still running?`;
   }
 }
 poll();
@@ -337,9 +373,9 @@ try {
   ({ OrbitControls } = await import("three/addons/controls/OrbitControls.js"));
 } catch {
   const note = document.createElement("div");
-  note.className = "scene-fallback";
-  note.textContent = "The 3D office needs three.js from cdn.jsdelivr.net, which did not load. The table, conversation and tasks still work.";
-  document.getElementById("scene").append(note);
+  note.className = "fallback";
+  note.textContent = "The 3D office needs three.js from cdn.jsdelivr.net, which did not load. The chat box and History still work.";
+  document.body.append(note);
 }
 
 if (THREE) {
@@ -348,6 +384,7 @@ if (THREE) {
   const overlay = document.getElementById("overlay");
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -356,10 +393,10 @@ if (THREE) {
   host.prepend(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
-  camera.position.set(0, 7.5, 11);
+  const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+  camera.position.set(0, 7, 11.5);
   const controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 1.2, 0);
+  controls.target.set(0, 1.4, 0);
   controls.enableDamping = true;
   controls.minDistance = 6; controls.maxDistance = 22;
   controls.maxPolarAngle = Math.PI / 2.15;
@@ -373,10 +410,7 @@ if (THREE) {
   scene.add(sun);
 
   const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
-  const floorMat = mat(css("--floor"));
-  const woodMat = mat(css("--wood"));
-  const chairMat = mat(css("--chair"));
-  const skinMat = mat(css("--skin"));
+  const floorMat = mat(css("--floor")), woodMat = mat(css("--wood")), chairMat = mat(css("--chair")), skinMat = mat(css("--skin"));
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), floorMat);
   floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
   scene.add(floor);
@@ -387,29 +421,26 @@ if (THREE) {
     return b;
   }
 
-  // The operator's in-tray at the front of the room: tasks from you start here.
+  // The operator's in-tray at the front of the room: messages from you start here.
+  const TRAY = new THREE.Vector3(0, 1.1, 5.2);
   const tray = new THREE.Group();
   tray.add(box(1.0, 0.08, 0.7, woodMat, 0, 0.9, 0));
   [-0.4, 0.4].forEach(x => tray.add(box(0.08, 0.9, 0.08, woodMat, x, 0.45, 0)));
   tray.position.set(0, 0, 5.2);
   scene.add(tray);
 
-  const desks = new Map();   // name -> { group, body, head, hands, screenLight, labelEl, bubbleEl, bubbleUntil }
+  const desks = new Map();
 
   function makeDesk(name, color) {
     const g = new THREE.Group();
     const agentMat = mat(color);
-    // desk, facing the camera; the agent sits behind it
     g.add(box(2.4, 0.1, 1.2, woodMat, 0, 0.9, 0));
     [[-1.1, -0.5], [1.1, -0.5], [-1.1, 0.5], [1.1, 0.5]].forEach(([x, z]) => g.add(box(0.08, 0.9, 0.08, woodMat, x, 0.45, z)));
-    // monitor turned towards the agent, keyboard in front of it
     g.add(box(1.0, 0.62, 0.06, mat("#2b2e33"), 0, 1.37, 0.25));
     g.add(box(0.08, 0.3, 0.08, mat("#2b2e33"), 0, 1.08, 0.25));
     g.add(box(0.7, 0.03, 0.22, mat("#3b3f46"), 0, 0.97, -0.25));
-    // chair
     g.add(box(0.7, 0.08, 0.65, chairMat, 0, 0.62, -0.95));
     g.add(box(0.7, 0.8, 0.08, chairMat, 0, 1.05, -1.28));
-    // the agent: body in its identity colour, head, two hands on the keyboard
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.45, 6, 16), agentMat);
     body.position.set(0, 1.18, -0.95); body.castShadow = true;
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 24, 16), skinMat);
@@ -424,7 +455,6 @@ if (THREE) {
       h.position.set(x, 1.02, -0.3); g.add(h); return h;
     });
     g.add(body, head);
-    // screen glow on the agent's face while it works
     const screenLight = new THREE.PointLight(color, 0, 2.2);
     screenLight.position.set(0, 1.4, 0.05);
     g.add(screenLight);
@@ -432,10 +462,9 @@ if (THREE) {
     const labelEl = document.createElement("div");
     labelEl.className = "tag";
     const bubbleEl = document.createElement("div");
-    bubbleEl.className = "bubble"; bubbleEl.style.opacity = 0;
+    bubbleEl.className = "bubble card"; bubbleEl.style.opacity = 0;
     overlay.append(bubbleEl, labelEl);
 
-    g.userData.agent = name;
     g.traverse(o => { o.userData.agent = name; });
     scene.add(g);
     return { group: g, body, head, hands, screenLight, agentMat, color, labelEl, bubbleEl, bubbleUntil: 0 };
@@ -443,7 +472,7 @@ if (THREE) {
 
   function layout() {
     const names = [...desks.keys()];
-    const n = names.length, spacing = 4.2;
+    const n = names.length, spacing = 4.4;
     names.forEach((name, i) => {
       const d = desks.get(name);
       if (n <= 4) d.group.position.set((i - (n - 1) / 2) * spacing, 0, 0);
@@ -456,14 +485,13 @@ if (THREE) {
   }
 
   window.addEventListener("fleet:state", e => {
-    const { agents } = e.detail;
     let changed = false;
-    agents.forEach(a => {
+    e.detail.agents.forEach(a => {
       if (!desks.has(a.name)) { desks.set(a.name, makeDesk(a.name, fleet.colorOf(a.name))); changed = true; }
       const d = desks.get(a.name);
       d.status = a.status;
       d.labelEl.className = `tag ${a.status}`;
-      d.labelEl.innerHTML = `<b>${a.title}</b><span>${{ working: "Working", idle: "Idle", offline: "Offline" }[a.status]}</span>`;
+      d.labelEl.innerHTML = `<b>${esc(a.title)}</b><span>${{ working: "Working", idle: "Idle", offline: "Offline" }[a.status]}${a.status === "working" ? ' <span class="dots"><i></i><i></i><i></i></span>' : ""}</span>`;
       d.agentMat.color.set(a.status === "offline" ? "#8b8f96" : d.color);
     });
     if (changed) layout();
@@ -476,14 +504,14 @@ if (THREE) {
   });
   scene.background = new THREE.Color(css("--bg"));
 
-  function say(name, who, text) {
+  function say(name, who, text, ms = 12000) {
     const d = desks.get(name);
     if (!d) return;
-    d.bubbleEl.innerHTML = `<small>${who}</small>${String(text).slice(0, 140).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]))}${text.length > 140 ? "…" : ""}`;
-    d.bubbleUntil = performance.now() + 8000;
+    const t = String(text);
+    d.bubbleEl.innerHTML = `<small>${esc(who)}</small>${esc(t.slice(0, 160))}${t.length > 160 ? "…" : ""}`;
+    d.bubbleUntil = performance.now() + ms;
   }
 
-  // envelopes in flight
   const envelopes = [];
   const envGeo = new THREE.BoxGeometry(0.42, 0.04, 0.3);
   function send(fromPos, toPos, color) {
@@ -494,10 +522,7 @@ if (THREE) {
     scene.add(m);
     envelopes.push({ m, from: fromPos.clone(), to: toPos.clone(), t0: performance.now(), dur: reduced ? 1 : 1500 });
   }
-  const headPos = name => {
-    const d = desks.get(name);
-    return d ? d.head.getWorldPosition(new THREE.Vector3()) : null;
-  };
+  const headPos = name => desks.get(name)?.head.getWorldPosition(new THREE.Vector3()) ?? null;
 
   window.addEventListener("fleet:event", e => {
     const ev = e.detail;
@@ -507,14 +532,13 @@ if (THREE) {
       say(ev.from, `to ${fleet.titleOf(ev.to)}`, ev.text);
     } else if (ev.kind === "task") {
       const to = headPos(ev.to);
-      if (to && ev.local) send(new THREE.Vector3(0, 1.1, 5.2), to, "#1f6b58");
-      if (!ev.local) say(ev.to, "task from you", ev.text);
+      if (to && ev.local) send(TRAY, to, getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
+      if (ev.local) say(ev.to, "message from you", ev.text, 6000);
     } else if (ev.kind === "reply") {
-      say(ev.from, "says", ev.text);
+      say(ev.from, fleet.titleOf(ev.from), ev.text, 20000);
     }
   });
 
-  // click an agent to address a task to it
   const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
   let downAt = null;
   renderer.domElement.addEventListener("pointerdown", e => { downAt = [e.clientX, e.clientY]; });
@@ -538,22 +562,18 @@ if (THREE) {
   const v = new THREE.Vector3();
   function place(el, pos) {
     v.copy(pos).project(camera);
-    const r = host.getBoundingClientRect();
-    el.style.left = `${(v.x * 0.5 + 0.5) * r.width}px`;
-    el.style.top = `${(-v.y * 0.5 + 0.5) * r.height}px`;
+    el.style.left = `${(v.x * 0.5 + 0.5) * host.clientWidth}px`;
+    el.style.top = `${(-v.y * 0.5 + 0.5) * host.clientHeight}px`;
     el.style.display = v.z < 1 ? "" : "none";
   }
 
   // Browsers pause requestAnimationFrame in background tabs. Redraw once per data update
-  // there, so a background tab still shows the current room instead of an empty floor.
+  // there, so a background tab still shows the current room.
   const drawIfPaused = () => { if (document.hidden) draw(performance.now()); };
   window.addEventListener("fleet:state", drawIfPaused);
   window.addEventListener("fleet:event", drawIfPaused);
 
-  function frame(now) {
-    draw(now);
-    requestAnimationFrame(frame);
-  }
+  function frame(now) { draw(now); requestAnimationFrame(frame); }
 
   function draw(now) {
     const t = now / 1000;
@@ -564,11 +584,12 @@ if (THREE) {
       d.head.position.y = 1.78 + bob;
       d.head.rotation.x = working && !reduced ? Math.sin(t * 2.3) * 0.08 + 0.12 : 0;
       d.hands.forEach((h, i) => { h.position.y = 1.02 + (working && !reduced ? Math.max(0, Math.sin(t * 14 + i * Math.PI)) * 0.05 : 0); });
-      d.screenLight.intensity = working ? 2.2 + (reduced ? 0 : Math.sin(t * 9) * 0.4) : (d.status === "offline" ? 0 : 0.5);
+      d.screenLight.intensity = working ? 2.2 + (reduced ? 0 : Math.sin(t * 9) * 0.4) : 0;
       const top = d.head.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.55, 0));
       place(d.labelEl, top);
       place(d.bubbleEl, top);
       d.bubbleEl.style.opacity = now < d.bubbleUntil ? 1 : 0;
+      d.bubbleEl.style.visibility = now < d.bubbleUntil + 400 ? "visible" : "hidden";
     }
     for (let i = envelopes.length - 1; i >= 0; i--) {
       const env = envelopes[i];
