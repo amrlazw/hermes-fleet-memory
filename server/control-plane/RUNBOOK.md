@@ -147,4 +147,6 @@ rm -rf ~/.fleet ~/.config/systemd/user/fleet-*.service
 * `gpu_batch` is declared in the allowlist but has no implementation yet; it
   returns an error and retries. A GPU node worker is a separate component.
 * There is no built-in TLS. Terminate it at a reverse proxy.
-* The task board at `/` is unauthenticated and read-only.
+* The task board at `/` has no login. It answers only direct loopback requests
+  (`ssh -L 8088:127.0.0.1:8088` to view it remotely) and returns `404` to anything
+  arriving through a reverse proxy unless `FLEET_BOARD_PUBLIC=1` is set.

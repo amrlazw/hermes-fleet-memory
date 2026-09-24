@@ -85,6 +85,7 @@ Process environment always wins over the file.
 | `FLEET_KEY_<NODE>` | generated | Bearer token accepted for that node |
 | `FLEET_HOST` / `FLEET_PORT` | `127.0.0.1` / `8088` | Bind address |
 | `FLEET_KEY_ID` | `<node>-fleet-1` | Receipt key identifier |
+| `FLEET_BOARD_PUBLIC` | unset | `1` serves the task board through a reverse proxy; by default it answers only direct loopback requests |
 | `TELEGRAM_BOT_TOKEN` | — | Optional |
 | `TELEGRAM_CHAT_ID` | — | Optional; required for delivery |
 
@@ -104,11 +105,11 @@ tunnel). On the client, point at it with `--url https://your.host` or put
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/healthz` | no | Status, roster, queue depth |
-| `GET` | `/` | no | Read-only task board |
+| `GET` | `/` | loopback | Read-only task board; `404` through a proxy unless `FLEET_BOARD_PUBLIC=1` |
 | `GET` | `/.well-known/fleet-keys.json` | no | Public verification keys |
 | `GET` | `/api/fleet/tasks` | bearer | Recent tasks for the caller's node |
 | `POST` | `/api/fleet/tasks` | bearer | Submit (`202 Accepted`) |
-| `GET` | `/api/fleet/tasks/{id}` | bearer | Status, result, signature |
+| `GET` | `/api/fleet/tasks/{id}` | bearer | Status, result, signature. Only the submitting and target nodes can read it |
 | `GET` | `/api/fleet/tasks/internal/wait-task` | bearer | Long-poll wake for the local worker |
 
 ---

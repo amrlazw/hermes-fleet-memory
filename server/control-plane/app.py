@@ -8,12 +8,14 @@ documents (RFCs, post-mortems, PDFs) are NOT part of this package.
 """
 from __future__ import annotations
 
+import html
 import json
+import os
 import sqlite3
 
 import task_routes
 from config import get_config
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from init_db import init_db
 from keys import ensure_keys
@@ -57,9 +59,31 @@ def healthz():
     }
 
 
+# Headers a reverse proxy adds. Their presence means the request did not come
+# from this machine, even though the proxy connects over loopback.
+_PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-real-ip", "forwarded")
+
+
+def _board_allowed(request: Request) -> bool:
+    """The board has no login, so by default only direct loopback requests see it.
+
+    Behind Caddy every request arrives from 127.0.0.1, which is how an unauthenticated
+    dashboard ended up public before. Proxied requests are refused unless the operator
+    opts in with FLEET_BOARD_PUBLIC=1.
+    """
+    if os.getenv("FLEET_BOARD_PUBLIC") == "1":
+        return True
+    host = request.client.host if request.client else ""
+    if host not in ("127.0.0.1", "::1"):
+        return False
+    return not any(h in request.headers for h in _PROXY_HEADERS)
+
+
 @app.get("/", response_class=HTMLResponse)
-def board():
+def board(request: Request):
     """Read-only task board. Not an admin console - no mutations here."""
+    if not _board_allowed(request):
+        raise HTTPException(status_code=404, detail="Not Found")
     conn = sqlite3.connect(str(_cfg.db_path), timeout=5)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
@@ -68,10 +92,12 @@ def board():
     ).fetchall()
     conn.close()
 
+    e = html.escape
+    # Every cell is escaped: error text comes from workers and upstream APIs.
     body = "".join(
-        f"<tr><td>{r['task_id'][:8]}</td><td>{r['target']}</td><td>{r['action']}</td>"
-        f"<td>{r['priority']}</td><td class='{r['status']}'>{r['status']}</td>"
-        f"<td>{r['created_at']:.0f}</td><td>{(r['error'] or '')[:60]}</td></tr>"
+        f"<tr><td>{e(r['task_id'][:8])}</td><td>{e(r['target'])}</td><td>{e(r['action'])}</td>"
+        f"<td>{e(r['priority'])}</td><td class='{e(r['status'])}'>{e(r['status'])}</td>"
+        f"<td>{r['created_at']:.0f}</td><td>{e((r['error'] or '')[:60])}</td></tr>"
         for r in rows
     ) or "<tr><td colspan='7'>No tasks yet.</td></tr>"
 
@@ -85,8 +111,8 @@ border-bottom:1px solid #1e242e}} th{{color:#7d8797;font-weight:500}}
 .dead_letter,.failed{{color:#f85149}}
 </style></head><body>
 <h1>Fleet Control Plane</h1>
-<div class="meta">node={_cfg.node_id} &middot; key={_cfg.key_id} &middot;
-nodes={', '.join(_cfg.nodes)} &middot; telegram={'on' if _cfg.telegram_enabled else 'off'}</div>
+<div class="meta">node={html.escape(_cfg.node_id)} &middot; key={html.escape(_cfg.key_id)} &middot;
+nodes={html.escape(', '.join(_cfg.nodes))} &middot; telegram={'on' if _cfg.telegram_enabled else 'off'}</div>
 <table><thead><tr><th>id</th><th>target</th><th>action</th><th>prio</th><th>status</th>
 <th>created</th><th>error</th></tr></thead><tbody>{body}</tbody></table>
 </body></html>"""
