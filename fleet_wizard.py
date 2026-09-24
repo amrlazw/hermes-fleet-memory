@@ -224,15 +224,22 @@ def run_autonomous_agent_setup(args):
         "artifacts_written": []
     }
 
+    # Three separate secrets. Reusing one value for all of them meant a stolen
+    # Qdrant key also opened the tunnel and the desktop bridge.
+    bridge_key = args.bridge_key or secrets.token_hex(32)
+    tunnel_key = args.tunnel_key or ""
+
     if role == "hub":
         secret = args.cluster_secret or secrets.token_hex(32)
+        tunnel_key = tunnel_key or secrets.token_hex(32)
         host = args.server_host or "127.0.0.1"
         env_content = f"""# Hermes Fleet Memory — Head Node Configuration (Agent Provisioned)
 FLEET_SERVER_HOST={host}
 FLEET_QDRANT_HOST=127.0.0.1
 FLEET_QDRANT_PORT=6333
 FLEET_QDRANT_KEY={secret}
-FLEET_BRIDGE_KEY={secret}
+FLEET_BRIDGE_KEY={bridge_key}
+FLEET_TUNNEL_KEY={tunnel_key}
 FLEET_HARD_DOMAIN=all
 """
         env_path = Path("server/.env")
@@ -240,6 +247,8 @@ FLEET_HARD_DOMAIN=all
         env_path.write_text(env_content, encoding="utf-8")
         receipt["artifacts_written"].append(str(env_path.resolve()))
         receipt["cluster_secret"] = secret
+        receipt["bridge_key"] = bridge_key
+        receipt["tunnel_key"] = tunnel_key
         receipt["deploy_method"] = args.deploy_method
 
     else:
@@ -254,9 +263,11 @@ FLEET_CLIENT_ID={client_id}
 FLEET_QDRANT_HOST=127.0.0.1
 FLEET_QDRANT_PORT=6333
 FLEET_QDRANT_KEY={secret}
-FLEET_BRIDGE_KEY={secret}
+FLEET_BRIDGE_KEY={bridge_key}
 FLEET_SERVER_HOST={hub_url.replace('wss://', '').replace('/tunnel', '')}
 """
+        if tunnel_key:
+            node_env += f"FLEET_TUNNEL_KEY={tunnel_key}\n"
         client_env = Path("client/.env")
         client_env.parent.mkdir(parents=True, exist_ok=True)
         client_env.write_text(node_env, encoding="utf-8")
@@ -264,6 +275,9 @@ FLEET_SERVER_HOST={hub_url.replace('wss://', '').replace('/tunnel', '')}
         receipt["domain_lock"] = domain
         receipt["client_id"] = client_id
         receipt["cluster_secret"] = secret
+        receipt["bridge_key"] = bridge_key
+        if tunnel_key:
+            receipt["tunnel_key"] = tunnel_key
 
     # FastMCP Hermes integration snippet
     script_abs_path = str((Path("client/fleet_memory.py")).resolve())
@@ -281,7 +295,10 @@ FLEET_SERVER_HOST={hub_url.replace('wss://', '').replace('/tunnel', '')}
     else:
         print(f"[OK] Autonomous Provisioning Complete ({role.upper()})")
         print(f"     Artifacts: {receipt['artifacts_written']}")
-        print(f"     Secret: {receipt.get('cluster_secret')}")
+        print(f"     Qdrant key: {receipt.get('cluster_secret')}")
+        print(f"     Bridge key: {receipt.get('bridge_key')}")
+        if receipt.get("tunnel_key"):
+            print(f"     Tunnel key: {receipt.get('tunnel_key')}")
 
     send_setup_beacon(role=role, deploy_mode="autonomous_agent")
 
@@ -299,7 +316,11 @@ def main():
     parser.add_argument("--domain", choices=["personal", "work", "shared", "all"], help="Hardware domain firewall")
     parser.add_argument("--node-name", "--client-id", dest="client_id", help="Custom name for this node (e.g. brain-vps, rig-3070, work-laptop, macbook)")
     parser.add_argument("--hub-url", help="WebSocket ingress URL for Cloud Hub (e.g. wss://brain.example.com/tunnel)")
-    parser.add_argument("--cluster-secret", help="256-bit cluster preshared secret")
+    parser.add_argument("--cluster-secret", help="256-bit cluster preshared secret (the Qdrant API key)")
+    parser.add_argument("--bridge-key", help="Desktop bridge key, shared by the bridge host and the nodes that "
+                        "call it. Generated if omitted.")
+    parser.add_argument("--tunnel-key", help="X-Fleet-Key value Caddy checks on the hub tunnel. "
+                        "Generated for the hub if omitted.")
     parser.add_argument("--server-host", help="Public domain or IP for Hub deployment")
     parser.add_argument("--deploy-method", choices=["docker", "systemd"], default="docker", help="Server deploy method")
     parser.add_argument("--non-interactive", action="store_true", help="Run unattended without interactive prompts (for AI agents)")
@@ -371,8 +392,9 @@ def main():
     if role == "hub":
         print(f"{CYAN}{BOLD}=== [Stage 1: Head Node Provisioning] ==={RESET}")
         cluster_secret = secrets.token_hex(32)
-        print("Generated fresh 256-bit cluster secret:")
-        print(f"  {GREEN}{BOLD}{cluster_secret}{RESET}\n")
+        bridge_key = secrets.token_hex(32)
+        tunnel_key = secrets.token_hex(32)
+        print("Generated three separate 256-bit secrets (Qdrant, tunnel, desktop bridge).\n")
 
         domain_name = prompt_input("Enter your Public Domain or VPS IP", "brain.example.com")
         deploy_method = prompt_choice(
@@ -389,33 +411,40 @@ FLEET_SERVER_HOST={domain_name}
 FLEET_QDRANT_HOST=127.0.0.1
 FLEET_QDRANT_PORT=6333
 FLEET_QDRANT_KEY={cluster_secret}
-FLEET_BRIDGE_KEY={cluster_secret}
+FLEET_BRIDGE_KEY={bridge_key}
+FLEET_TUNNEL_KEY={tunnel_key}
 FLEET_HARD_DOMAIN=all
 """
         env_path = Path("server/.env")
         env_path.parent.mkdir(parents=True, exist_ok=True)
         env_path.write_text(env_content, encoding="utf-8")
-        print(f"\n{GREEN}✔ Created server/.env with 256-bit cluster key.{RESET}")
+        print(f"\n{GREEN}✔ Created server/.env with separate Qdrant, tunnel and bridge keys.{RESET}")
 
         if deploy_method == "docker":
             print(f"\n{YELLOW}{BOLD}Next Steps for Docker Deployment:{RESET}")
-            print(f"  1. Review Caddyfile: {CYAN}server/Caddyfile.example{RESET}")
+            print(f"  1. Review Caddyfile: {CYAN}server/Caddyfile.example{RESET} (X-Fleet-Key = tunnel key)")
             print(f"  2. Launch stack:    {BOLD}cd server && docker compose up -d{RESET}")
             print(f"  3. Check health:    {BOLD}curl http://127.0.0.1:6333/readyz{RESET}")
         else:
             print(f"\n{YELLOW}{BOLD}Next Steps for Native Systemd:{RESET}")
             print(f"  1. Copy units:      {BOLD}sudo cp server/systemd/*.service /etc/systemd/system/{RESET}")
+            print(f"     Tunnel allowlist: {BOLD}sudo install -D -m 644 server/wstunnel-restrictions.yaml "
+                  f"/etc/wstunnel/restrictions.yaml{RESET}")
             print(f"  2. Reload & start:  {BOLD}sudo systemctl daemon-reload && sudo systemctl enable --now qdrant wstunnel{RESET}")
 
         print(f"\n{MAGENTA}{BOLD}Node Join Credentials (Save this for your member nodes!):{RESET}")
         print(f"  Hub Endpoint:    {CYAN}wss://{domain_name}/tunnel{RESET}")
-        print(f"  Cluster Secret:  {GREEN}{cluster_secret}{RESET}\n")
+        print(f"  Qdrant Key:      {GREEN}{cluster_secret}{RESET}")
+        print(f"  Tunnel Key:      {GREEN}{tunnel_key}{RESET}  (FLEET_TUNNEL_KEY, and X-Fleet-Key in the Caddyfile)")
+        print(f"  Bridge Key:      {GREEN}{bridge_key}{RESET}  (FLEET_BRIDGE_KEY on the bridge workstation)\n")
         return
 
     # Flow B: Member Node Setup (Desktop or Edge)
     print(f"{CYAN}{BOLD}=== [Stage 2: Node Configuration] ==={RESET}")
 
     qdrant_url = ""
+    tunnel_key = ""
+    bridge_key = secrets.token_hex(32)
     if fleet_size == "pair":
         print(f"\n{CYAN}--- Configuring Managed Cloud Sync (Qdrant Cloud) ---{RESET}")
         qdrant_url = prompt_input("Enter your Qdrant Cloud URL (e.g. https://xxxx.cloud.qdrant.io:6333)", "https://xxxx.cloud.qdrant.io:6333")
@@ -423,7 +452,13 @@ FLEET_HARD_DOMAIN=all
         hub_url = ""
     else:
         hub_url = prompt_input("Enter your Hub WebSocket Ingress URL", "wss://brain.example.com/tunnel")
-        cluster_secret = prompt_input("Enter the Hub 256-bit Cluster Secret (from Hub setup)")
+        cluster_secret = prompt_input("Enter the Hub Qdrant Key (from Hub setup)")
+        tunnel_key = prompt_input("Enter the Hub Tunnel Key (from Hub setup)")
+        bridge_key = prompt_input("Enter the Hub Bridge Key (from Hub setup, blank to generate one)")
+        if not bridge_key:
+            bridge_key = secrets.token_hex(32)
+            print(f"{YELLOW}Generated bridge key: {bridge_key}")
+            print(f"Set FLEET_BRIDGE_KEY to this value on the hub too, or desktop_* tools cannot authenticate.{RESET}")
 
     if not cluster_secret:
         cluster_secret = secrets.token_hex(32)
@@ -467,9 +502,11 @@ FLEET_CLIENT_ID={client_id}
 FLEET_QDRANT_HOST=127.0.0.1
 FLEET_QDRANT_PORT=6333
 FLEET_QDRANT_KEY={cluster_secret}
-FLEET_BRIDGE_KEY={cluster_secret}
+FLEET_BRIDGE_KEY={bridge_key}
 FLEET_SERVER_HOST={hub_url.replace('wss://', '').replace('/tunnel', '')}
 """
+        if tunnel_key:
+            node_env += f"FLEET_TUNNEL_KEY={tunnel_key}\n"
     client_env_path = Path("client/.env")
     client_env_path.parent.mkdir(parents=True, exist_ok=True)
     client_env_path.write_text(node_env, encoding="utf-8")
@@ -547,7 +584,7 @@ FLEET_SERVER_HOST={hub_url.replace('wss://', '').replace('/tunnel', '')}
 
     print("\n" + "═" * 65)
     print(f" {GREEN}{BOLD}🎉 NODE PROVISIONING COMPLETE!{RESET}")
-    print(f" Test vector memory now:  {CYAN}python client/fleet_memory.py --test{RESET}")
+    print(f" Check this node now:     {CYAN}python client/fleet_memory.py --doctor{RESET}")
     print("═" * 65 + "\n")
 
     send_setup_beacon(role=role, deploy_mode="interactive")

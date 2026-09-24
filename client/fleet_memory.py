@@ -104,8 +104,49 @@ BRIDGE_PORT = int(os.getenv("FLEET_BRIDGE_PORT", "8099"))
 # at the control plane YOU deployed (see server/control-plane/), e.g.
 #   FLEET_TASKS_URL=http://127.0.0.1:8088
 FLEET_TASKS_URL = os.getenv("FLEET_TASKS_URL", "").rstrip("/")
-FLEET_KEY = os.getenv("FLEET_QDRANT_KEY", os.getenv("FLEET_CLUSTER_SECRET", ""))
-FLEET_BRIDGE_KEY = os.getenv("FLEET_BRIDGE_KEY") or os.getenv("FLEET_QDRANT_KEY") or os.getenv("FLEET_CLUSTER_SECRET", "")
+
+
+def _auth_file_key() -> str:
+    """fleet_key from the auth files server/control-plane/client_delegate.py also reads."""
+    candidates = []
+    if os.getenv("FLEET_HOME"):
+        candidates.append(os.path.join(os.getenv("FLEET_HOME"), "auth.json"))
+    candidates.append(os.path.join(os.path.expanduser("~"), ".hermes", "fleet_auth.json"))
+    for path in candidates:
+        try:
+            with open(path, encoding="utf-8") as f:
+                key = json.load(f).get("fleet_key", "")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if key:
+            return key
+    return ""
+
+
+def _resolve_task_key():
+    """Control-plane bearer token and the name of the setting it came from.
+
+    FLEET_QDRANT_KEY is accepted last so existing nodes keep delegating, but it
+    makes the vector database credential double as the task-plane token. The
+    task tools flag that in their response and --doctor warns about it.
+    """
+    if os.getenv("FLEET_KEY"):
+        return os.getenv("FLEET_KEY"), "FLEET_KEY"
+    key = _auth_file_key()
+    if key:
+        return key, "fleet_auth.json"
+    if os.getenv("FLEET_CLUSTER_SECRET"):
+        return os.getenv("FLEET_CLUSTER_SECRET"), "FLEET_CLUSTER_SECRET"
+    if os.getenv("FLEET_QDRANT_KEY"):
+        return os.getenv("FLEET_QDRANT_KEY"), "FLEET_QDRANT_KEY"
+    return "", ""
+
+
+FLEET_KEY, FLEET_KEY_SOURCE = _resolve_task_key()
+# The desktop bridge refuses to start without its own FLEET_BRIDGE_KEY, so there
+# is nothing to fall back to: sending the Qdrant key would only leak it to the
+# bridge and fail auth.
+FLEET_BRIDGE_KEY = os.getenv("FLEET_BRIDGE_KEY", "")
 
 # Global singletons
 _client = None
@@ -121,6 +162,24 @@ def _task_plane_error() -> Dict[str, Any]:
             "run yourself (e.g. http://127.0.0.1:8088, or the public URL of a control "
             "plane deployed from server/control-plane/). Task delegation stays disabled "
             "until then - this client never falls back to a shared or third-party hub."
+        ),
+    }
+
+
+def _task_key_warning() -> Optional[str]:
+    """Set when the task-plane token is the Qdrant key, so whoever holds one holds both."""
+    if FLEET_KEY and QDRANT_API_KEY and FLEET_KEY == QDRANT_API_KEY:
+        return ("The control-plane token is the Qdrant key. Issue this node its own token "
+                "(FLEET_KEY_<NODE> on the control plane) and set it as FLEET_KEY here.")
+    return None
+
+
+def _bridge_key_error() -> Dict[str, Any]:
+    return {
+        "status": "error",
+        "message": (
+            "FLEET_BRIDGE_KEY is not set. Set it to the bridge key configured on the "
+            "workstation running desktop_bridge.py. The Qdrant key is not accepted."
         ),
     }
 
@@ -609,10 +668,12 @@ if HAS_MCP and mcp:
         """Check if remote workstation bridge is online and return live GPU telemetry."""
         import json
         import urllib.request
+        if not FLEET_BRIDGE_KEY:
+            return _bridge_key_error()
         try:
             req = urllib.request.Request(
                 f"http://127.0.0.1:{BRIDGE_PORT}/health",
-                headers={"Authorization": f"Bearer {QDRANT_API_KEY}"}
+                headers={"Authorization": f"Bearer {FLEET_BRIDGE_KEY}"}
             )
             with urllib.request.urlopen(req, timeout=3) as resp:
                 if resp.status == 200:
@@ -634,6 +695,8 @@ if HAS_MCP and mcp:
         import json
         import urllib.error
         import urllib.request
+        if not FLEET_BRIDGE_KEY:
+            return _bridge_key_error()
         try:
             payload = {}
             if action:
@@ -669,6 +732,8 @@ if HAS_MCP and mcp:
         import json
         import urllib.error
         import urllib.request
+        if not FLEET_BRIDGE_KEY:
+            return _bridge_key_error()
         try:
             data = json.dumps({"path": path}).encode("utf-8")
             req = urllib.request.Request(
@@ -701,6 +766,8 @@ if HAS_MCP and mcp:
         import urllib.error
         import urllib.parse
         import urllib.request
+        if not FLEET_BRIDGE_KEY:
+            return _bridge_key_error()
         try:
             url = f"http://127.0.0.1:{BRIDGE_PORT}/download?path=" + urllib.parse.quote(remote_path)
             req = urllib.request.Request(
@@ -746,6 +813,8 @@ if HAS_MCP and mcp:
         import os
         import urllib.error
         import urllib.request
+        if not FLEET_BRIDGE_KEY:
+            return _bridge_key_error()
         try:
             payload = json.dumps({"path": remote_dir}).encode("utf-8")
             req = urllib.request.Request(
@@ -786,13 +855,15 @@ if HAS_MCP and mcp:
         import json
         import urllib.error
         import urllib.request
+        if not FLEET_BRIDGE_KEY:
+            return _bridge_key_error()
         try:
             data = json.dumps({"action": action, "delay": delay_seconds}).encode("utf-8")
             req = urllib.request.Request(
                 f"http://127.0.0.1:{BRIDGE_PORT}/power",
                 data=data,
                 headers={
-                    "Authorization": f"Bearer {QDRANT_API_KEY}",
+                    "Authorization": f"Bearer {FLEET_BRIDGE_KEY}",
                     "Content-Type": "application/json"
                 }
             )
@@ -858,7 +929,7 @@ if HAS_MCP and mcp:
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
-                return {
+                accepted = {
                     "status": "accepted",
                     "task_id": res.get("task_id"),
                     "task_status": res.get("status"),
@@ -867,6 +938,9 @@ if HAS_MCP and mcp:
                     "eta_seconds": res.get("eta_seconds", 1),
                     "message": f"Task successfully queued for {target_node}. Use fleet_task_status(task_id='{res.get('task_id')}') to verify receipt."
                 }
+                if _task_key_warning():
+                    accepted["key_warning"] = _task_key_warning()
+                return accepted
         except urllib.error.HTTPError as e:
             try:
                 return json.loads(e.read().decode("utf-8"))
@@ -1114,6 +1188,23 @@ def cmd_doctor(args) -> int:
     else:
         print(f"    [WARN] not cached ({cache}) - first search downloads ~130MB.")
         print("           run with --warm to pre-download it now.")
+
+    # Warnings only: a fused key is a hardening gap, not a reason to fail a working node.
+    print("  secret separation:")
+    if not FLEET_BRIDGE_KEY:
+        print("    [INFO] FLEET_BRIDGE_KEY unset - desktop_* tools are disabled on this node.")
+    elif QDRANT_API_KEY and FLEET_BRIDGE_KEY == QDRANT_API_KEY:
+        print("    [WARN] FLEET_BRIDGE_KEY equals the Qdrant key - the bridge will warn and a")
+        print("           stolen database key grants bridge access. Generate a separate one.")
+    else:
+        print("    [OK]   bridge key is separate from the Qdrant key")
+    if not FLEET_KEY:
+        print("    [INFO] no control-plane token - fleet_task_* tools are disabled on this node.")
+    elif _task_key_warning():
+        print(f"    [WARN] control-plane token comes from {FLEET_KEY_SOURCE} and equals the Qdrant key.")
+        print("           Issue this node its own token on the control plane and set FLEET_KEY.")
+    else:
+        print(f"    [OK]   control-plane token from {FLEET_KEY_SOURCE}, separate from the Qdrant key")
 
     print(f"  vector engine    : probing (timeout {QDRANT_TIMEOUT}s)...")
     ok, ms, detail = _probe_qdrant()

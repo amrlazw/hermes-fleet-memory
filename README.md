@@ -54,8 +54,8 @@ cd hermes-fleet-memory
 # 2. Run automated wizard in Standalone Mode
 python setup.py --role standalone --non-interactive
 
-# 3. Test local vector search & memory recall immediately
-python client/fleet_memory.py --test
+# 3. Check the node (bounded preflight, always exits)
+python client/fleet_memory.py --doctor
 ```
 
 #### Connect to your AI Client in 1 Step:
