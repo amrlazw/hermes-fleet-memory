@@ -99,13 +99,30 @@ FLEET_VERSION = "1.0.0"
 
 # Optional Desktop Bridge & Control Plane URLs
 BRIDGE_PORT = int(os.getenv("FLEET_BRIDGE_PORT", "8099"))
-FLEET_TASKS_URL = os.getenv("FLEET_TASKS_URL", "https://fleet.republikus.my").rstrip("/")
+# Fleet control plane endpoint. Deliberately has NO default: an unconfigured node
+# must never ship task payloads or bearer tokens to somebody else's hub. Point this
+# at the control plane YOU deployed (see server/control-plane/), e.g.
+#   FLEET_TASKS_URL=http://127.0.0.1:8088
+FLEET_TASKS_URL = os.getenv("FLEET_TASKS_URL", "").rstrip("/")
 FLEET_KEY = os.getenv("FLEET_QDRANT_KEY", os.getenv("FLEET_CLUSTER_SECRET", ""))
 FLEET_BRIDGE_KEY = os.getenv("FLEET_BRIDGE_KEY") or os.getenv("FLEET_QDRANT_KEY") or os.getenv("FLEET_CLUSTER_SECRET", "")
 
 # Global singletons
 _client = None
 _embedder = None
+
+
+def _task_plane_error() -> Dict[str, Any]:
+    """Uniform refusal when no control plane is configured for this node."""
+    return {
+        "status": "error",
+        "message": (
+            "Fleet control plane not configured. Set FLEET_TASKS_URL to the hub you "
+            "run yourself (e.g. http://127.0.0.1:8088, or the public URL of a control "
+            "plane deployed from server/control-plane/). Task delegation stays disabled "
+            "until then - this client never falls back to a shared or third-party hub."
+        ),
+    }
 
 
 def get_client():
@@ -810,6 +827,8 @@ if HAS_MCP and mcp:
         import json
         import urllib.error
         import urllib.request
+        if not FLEET_TASKS_URL:
+            return _task_plane_error()
         if not FLEET_KEY:
             return {
                 "status": "error",
@@ -868,6 +887,8 @@ if HAS_MCP and mcp:
         import json
         import urllib.error
         import urllib.request
+        if not FLEET_TASKS_URL:
+            return _task_plane_error()
         if not FLEET_KEY:
             return {
                 "status": "error",
@@ -1103,7 +1124,9 @@ def cmd_doctor(args) -> int:
             print(f"    [WARN] '{COLLECTION_NAME}' missing - run --init or --bootstrap.")
     else:
         print(f"    [FAIL] unreachable after {ms:.0f}ms: {detail}")
-        print("           check the WSTunnel/Tailscale bridge, or pass --url for managed Qdrant.")
+        print("           No cluster yet? Create your own free one at https://cloud.qdrant.io")
+        print("           then run: python fleet_wizard.py  (or pass --url/--key here).")
+        print("           Self-hosting already? Check your WSTunnel/Tailscale bridge is up.")
         problems.append("vector engine unreachable")
 
     print()

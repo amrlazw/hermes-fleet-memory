@@ -196,9 +196,10 @@ error instead of a summary.
 ### B.7 Delegating from inside an agent (MCP)
 
 The `fleet_task_delegate` / `fleet_task_status` MCP tools use the same plane.
-They resolve the endpoint from `FLEET_TASKS_URL` (default `http://127.0.0.1:8088`)
-or from `~/.hermes/fleet_auth.json`. **Never assume a remote fleet host exists** —
-if the human's plane is local, that default is already correct.
+They resolve the endpoint from `FLEET_TASKS_URL` or `~/.hermes/fleet_auth.json`.
+There is **no default endpoint**: with `FLEET_TASKS_URL` unset both tools refuse
+with a configuration error rather than contacting any hub. **Never assume a remote
+fleet host exists** — if the human's plane is local, set `FLEET_TASKS_URL=http://127.0.0.1:8088`.
 
 Allowlisted actions only:
 

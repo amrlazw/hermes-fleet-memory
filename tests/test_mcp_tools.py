@@ -94,7 +94,8 @@ class TestMCPToolsCoverage(unittest.TestCase):
         mock_resp.read.return_value = b'{"task_id": "tsk_123", "status": "pending"}'
         mock_urlopen.return_value.__enter__.return_value = mock_resp
 
-        res = fleet_memory.fleet_task_delegate(target_node="chester", action="telegram_notify", params={"message": "hi"})
+        with patch.object(fleet_memory, "FLEET_TASKS_URL", "http://127.0.0.1:8000"),                 patch.object(fleet_memory, "FLEET_KEY", "test_key"):
+            res = fleet_memory.fleet_task_delegate(target_node="chester", action="telegram_notify", params={"message": "hi"})
         self.assertEqual(res.get("status"), "accepted")
         self.assertEqual(res.get("task_id"), "tsk_123")
 
@@ -105,8 +106,22 @@ class TestMCPToolsCoverage(unittest.TestCase):
         mock_resp.read.return_value = b'{"task_id": "tsk_123", "status": "completed", "result": {"output": "done"}}'
         mock_urlopen.return_value.__enter__.return_value = mock_resp
 
-        res = fleet_memory.fleet_task_status(task_id="tsk_123", verify_receipt=False)
+        with patch.object(fleet_memory, "FLEET_TASKS_URL", "http://127.0.0.1:8000"),                 patch.object(fleet_memory, "FLEET_KEY", "test_key"):
+            res = fleet_memory.fleet_task_status(task_id="tsk_123", verify_receipt=False)
         self.assertEqual(res.get("status"), "completed")
+
+    @patch("urllib.request.urlopen")
+    def test_task_plane_requires_explicit_endpoint(self, mock_urlopen):
+        """An unconfigured node must refuse locally instead of calling any hub."""
+        import fleet_memory
+        with patch.object(fleet_memory, "FLEET_TASKS_URL", ""),                 patch.object(fleet_memory, "FLEET_KEY", "test_key"):
+            delegated = fleet_memory.fleet_task_delegate(target_node="node-a", action="fleet_health_ping")
+            queried = fleet_memory.fleet_task_status(task_id="tsk_123")
+
+        for res in (delegated, queried):
+            self.assertEqual(res.get("status"), "error")
+            self.assertIn("FLEET_TASKS_URL", res.get("message", ""))
+        mock_urlopen.assert_not_called()
 
     @patch("fleet_memory.get_client")
     def test_fleet_graph_search(self, mock_client):

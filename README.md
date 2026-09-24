@@ -267,6 +267,11 @@ The wizard will:
 
 ## Deployment Models
 
+> **Every deployment runs on infrastructure you own.** There is no shared, hosted or
+> default Fleet Memory instance: you create your own Qdrant cluster (free tier is fine)
+> and your own control plane, and the client refuses to start against anything it was
+> not explicitly pointed at. Run `python fleet_wizard.py` and it will walk you through it.
+
 Choose the architecture that matches your setup:
 
 | Option | Infrastructure Needed | Cost | Setup Time | Best For |
