@@ -15,6 +15,27 @@ python examples/bot-mode-local/run_demo.py --stop    # stop both gateways, delet
 `--api-key-env` names an environment variable holding that model's key, so the
 key never appears on a command line.
 
+## Fleet Office: watch them and give them tasks
+
+```bash
+python examples/bot-mode-local/dashboard.py     # then open http://127.0.0.1:8130
+```
+
+- **Office:** each agent sits at a desk in a small 3D room. An agent types, with its
+  screen lit, only while it is actually working. An envelope crosses the room when
+  one agent messages another. Drag to turn the room; click an agent to address it.
+- **Agents table:** what each one is doing now, when it was last active, and how
+  many messages it has sent and received.
+- **Conversation:** every message and reply, from the agents' own session databases.
+- **Give a task:** pick an agent, write the task, send. It arrives as a message
+  from you; the agent may bring in its peers, and the task list shows its latest
+  answer.
+
+The server binds `127.0.0.1` only. A task submission needs this run's token
+(embedded in the page) and the dashboard's own `Origin`, so another website open
+in the same browser cannot send your agents work. The 3D view loads three.js from
+cdn.jsdelivr.net; without it the table, conversation and tasks still work.
+
 ## What it isolates
 
 | | |
