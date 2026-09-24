@@ -1,6 +1,6 @@
 # Privacy Policy for Hermes Fleet Memory
 
-**Last Updated:** September 14, 2026
+**Last Updated:** September 24, 2026
 
 Hermes Fleet Memory is a self-hosted, distributed vector memory and NAT-traversing execution mesh built for multi-instance Hermes AI agent fleets.
 
@@ -17,6 +17,13 @@ Hermes Fleet Memory operates under a strict **Zero Ambient Exfiltration** and **
 
 ## 3. Network Communications
 Any outbound or inter-node communications occur solely between endpoints configured explicitly by the server administrator (e.g. your private WSTunnel ingress or self-hosted control plane).
+
+### Optional telemetry (off by default)
+The only exception is an anonymous setup beacon that is **disabled unless you opt in** with
+`FLEET_TELEMETRY=1`. When enabled, `--init` and the setup wizard send one request to the
+maintainer's endpoint carrying an opaque 16-character instance hash, OS platform, version and
+domain mode. It never carries memory contents, queries, file paths or credentials.
+`DO_NOT_TRACK=1` disables it even when opted in.
 
 ## 4. Contact & Disclosures
 For security audits, vulnerability reports, or inquiries regarding data handling, please submit an issue or security advisory via the official GitHub repository:

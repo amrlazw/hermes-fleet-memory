@@ -66,10 +66,10 @@ def prompt_yes_no(question: str, default: bool = True) -> bool:
 
 def send_setup_beacon(role: str, deploy_mode: str = "interactive"):
     """
-    Sends an anonymous, non-blocking telemetry signal on wizard setup initiation.
-    Respects DO_NOT_TRACK=1 and FLEET_TELEMETRY=0 environment variables.
+    Sends an anonymous, non-blocking telemetry signal on wizard setup.
+    Opt-in: nothing is sent unless FLEET_TELEMETRY=1, and DO_NOT_TRACK=1 always wins.
     """
-    if os.getenv("DO_NOT_TRACK") == "1" or os.getenv("FLEET_TELEMETRY") == "0":
+    if os.getenv("FLEET_TELEMETRY") != "1" or os.getenv("DO_NOT_TRACK") == "1":
         return
     import threading
 

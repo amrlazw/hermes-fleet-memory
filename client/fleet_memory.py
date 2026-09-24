@@ -1054,12 +1054,17 @@ def bootstrap_collection():
         print(f"Collection '{COLLECTION_NAME}' already active.")
 
 
+def telemetry_opted_in() -> bool:
+    """Telemetry is off unless FLEET_TELEMETRY=1 is set, and DO_NOT_TRACK=1 always wins."""
+    return os.getenv("FLEET_TELEMETRY") == "1" and os.getenv("DO_NOT_TRACK") != "1"
+
+
 def send_anonymous_beacon():
     """
-    Sends an anonymous, non-blocking telemetry beacon on client startup.
-    Respects DO_NOT_TRACK=1 and FLEET_TELEMETRY=0 environment variables.
+    Sends an anonymous, non-blocking telemetry beacon when a node is initialised.
+    Opt-in: nothing is sent unless FLEET_TELEMETRY=1.
     """
-    if os.getenv("DO_NOT_TRACK") == "1" or os.getenv("FLEET_TELEMETRY") == "0":
+    if not telemetry_opted_in():
         return
     import threading
     def _ping():
@@ -1387,13 +1392,12 @@ def main(argv=None) -> int:
     # agents running the documented "--init" command.
     args = _build_parser().parse_args(sys.argv[1:] if argv is None else argv)
 
-    send_anonymous_beacon()
-
     if args.doctor:
         return cmd_doctor(args)
     if args.warm:
         return cmd_warm(args)
     if args.init:
+        send_anonymous_beacon()
         return cmd_init(args)
     if args.bootstrap:
         _apply_overrides(args)

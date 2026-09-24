@@ -549,13 +549,13 @@ Rigorous cross-hardware benchmarking measured between **Node 1** (Oracle Cloud A
 
 ## 📊 Anonymous Architecture Telemetry
 
-To measure real-world framework adoption and guide maintenance priorities, `hermes-fleet-memory` includes transparent, zero-PII telemetry:
+Telemetry is **off by default**. Nothing is sent to the maintainer unless you set `FLEET_TELEMETRY=1`:
 
 1. **GitHub Live Status Badge:** Hosted dynamically at `https://fleet.republikus.my/api/telemetry/badge.svg`. Aggregates daily README impressions with zero third-party trackers.
-2. **Anonymous Startup Beacon:** On initialization (`python client/fleet_memory.py --init`), clients send a non-blocking, asynchronous JSON beacon:
+2. **Anonymous Setup Beacon (opt-in):** With `FLEET_TELEMETRY=1`, `python client/fleet_memory.py --init` and the setup wizard send one non-blocking JSON beacon. The MCP server, `--doctor` and `--warm` never send it:
    - **Payload:** An opaque 16-character SHA-256 instance hash, OS platform, architecture version, and domain mode (`work` / `personal` / `all`).
    - **Zero PII:** IP addresses, file paths, directory names, and prompt contents are never logged or stored.
-   - **Strict Opt-Out:** Completely disabled if either `DO_NOT_TRACK=1` or `FLEET_TELEMETRY=0` is set in the environment.
+   - **Opt-In Only:** Sent only when `FLEET_TELEMETRY=1`. `DO_NOT_TRACK=1` overrides it.
 
 ---
 
@@ -602,4 +602,4 @@ non-zero when something is wrong — safe for an agent to run unattended.
 | `FLEET_QDRANT_KEY` | – | Qdrant API key |
 | `FLEET_QDRANT_TIMEOUT` | `10` | Seconds before a vector call gives up |
 | `FASTEMBED_THREADS` | `2` | Embedding worker threads |
-| `DO_NOT_TRACK` / `FLEET_TELEMETRY` | – | Set `1` / `0` to disable the startup beacon |
+| `FLEET_TELEMETRY` / `DO_NOT_TRACK` | off | Set `FLEET_TELEMETRY=1` to opt in to the setup beacon; `DO_NOT_TRACK=1` always disables it |
