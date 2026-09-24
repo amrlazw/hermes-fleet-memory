@@ -180,6 +180,40 @@ def _task_key_warning() -> Optional[str]:
     return None
 
 
+def _receipt_jwks():
+    """Receipt verification keys, and whether they were pinned locally or fetched.
+
+    A key fetched from the same hub that produced the receipt only proves the hub
+    agrees with itself. FLEET_RECEIPT_JWKS pins a local copy of the hub's
+    fleet_keys.json, so a compromised or impersonated hub cannot sign its own receipts.
+    """
+    pinned = os.getenv("FLEET_RECEIPT_JWKS")
+    if pinned:
+        with open(os.path.expanduser(pinned), encoding="utf-8") as f:
+            return json.load(f), "pinned"
+    import urllib.request
+    with urllib.request.urlopen(f"{FLEET_TASKS_URL}/.well-known/fleet-keys.json", timeout=5) as resp:
+        return json.loads(resp.read().decode("utf-8")), "fetched_from_hub"
+
+
+def _jwks_public_key(jwks: Dict[str, Any], kid: Optional[str]):
+    """The Ed25519 key for kid. Accepts base64url 'x' (RFC 7518, what server/control-plane
+    publishes) and legacy hex 'x', like server/control-plane/keys.py."""
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+    for entry in jwks.get("keys", []):
+        if kid and entry.get("kid") != kid:
+            continue
+        x = entry.get("x", "")
+        if len(x) == 64 and all(c in "0123456789abcdefABCDEF" for c in x):
+            raw = bytes.fromhex(x)
+        else:
+            raw = base64.urlsafe_b64decode(x + "=" * (-len(x) % 4))
+        return ed25519.Ed25519PublicKey.from_public_bytes(raw)
+    raise KeyError(f"no Ed25519 key for kid={kid!r} in the receipt key set")
+
+
 def _bridge_key_error() -> Dict[str, Any]:
     return {
         "status": "error",
@@ -939,7 +973,8 @@ if HAS_MCP and mcp:
         target_node: str,
         action: str,
         params: Optional[Dict[str, Any]] = None,
-        priority: str = "normal"
+        priority: str = "normal",
+        idempotency_key: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Asynchronously delegate an allowlisted task to another fleet node.
@@ -947,6 +982,9 @@ if HAS_MCP and mcp:
         - action: Action to perform ('telegram_notify', 'fleet_health_ping', 'gpu_batch').
         - params: Parameters dict (e.g. {'message': 'Hello from Levi'}).
         - priority: 'low', 'normal', or 'critical'.
+        - idempotency_key: Optional 8-128 char key. Reuse the same key when retrying a call
+          that timed out, and the control plane returns the original task instead of queuing
+          a duplicate. Omit it and every call queues a new task.
         """
         import json
         import urllib.error
@@ -959,7 +997,7 @@ if HAS_MCP and mcp:
                 "message": "Missing FLEET_KEY. Configure FLEET_KEY in environment or ~/.hermes/fleet_auth.json."
             }
 
-        idempotency_key = f"mcp_{action}_{int(time.time() * 1000)}"
+        idempotency_key = idempotency_key or f"mcp_{action}_{uuid.uuid4().hex}"
         payload = {
             "target": target_node.lower(),
             "action": action,
@@ -989,6 +1027,8 @@ if HAS_MCP and mcp:
                     "target": target_node,
                     "action": action,
                     "eta_seconds": res.get("eta_seconds", 1),
+                    "idempotency_key": idempotency_key,
+                    "idempotent_replay": bool(res.get("idempotent_replay")),
                     "message": f"Task successfully queued for {target_node}. Use fleet_task_status(task_id='{res.get('task_id')}') to verify receipt."
                 }
                 if _task_key_warning():
@@ -1032,14 +1072,11 @@ if HAS_MCP and mcp:
                 task_data = json.loads(resp.read().decode("utf-8"))
 
             verified = None
+            key_source = None
             if verify_receipt and task_data.get("status") == "completed" and task_data.get("ed25519_signature"):
                 try:
-                    from cryptography.hazmat.primitives.asymmetric import ed25519
-                    keys_url = f"{FLEET_TASKS_URL}/.well-known/fleet-keys.json"
-                    with urllib.request.urlopen(keys_url, timeout=5) as k_resp:
-                        jwks = json.loads(k_resp.read().decode("utf-8"))
-                        pub_hex = jwks["keys"][0]["x"]
-                    pub_key = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(pub_hex))
+                    jwks, key_source = _receipt_jwks()
+                    pub_key = _jwks_public_key(jwks, task_data.get("kid"))
                     receipt_payload = {
                         "completed_at": round(task_data["completed_at"], 3),
                         "result": task_data["result"],
@@ -1060,6 +1097,8 @@ if HAS_MCP and mcp:
                 "result": task_data.get("result"),
                 "error": task_data.get("error"),
                 "receipt_verified": verified,
+                "receipt_key_source": key_source,
+                "verification_error": task_data.get("verification_error"),
                 "kid": task_data.get("kid"),
                 "created_at": task_data.get("created_at"),
                 "completed_at": task_data.get("completed_at")
