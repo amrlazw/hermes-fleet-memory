@@ -189,6 +189,37 @@ def main() -> int:
                         "notification_status": "delivered", "receipt": {"message_id": 1}}
     check("forged result fails verification", verify_receipt(forged, jwks) is False)
 
+    # -------------------------------------------------- 6b. read authorisation
+    print("\n[6b] Task reads and the board")
+    beta_token = next(t for t, n in cfg.node_keys.items() if n == "beta")
+    beta = {"Authorization": f"Bearer {beta_token}"}
+    r = client.get(f"/api/fleet/tasks/{task_id}", headers=beta)
+    check("unrelated node cannot read a task (404)", r.status_code == 404, str(r.status_code))
+    r = client.post("/api/fleet/tasks",
+                    json={**payload, "idempotency_key": "smoke-to-beta-1", "target": "beta"},
+                    headers=auth)
+    to_beta = r.json()["task_id"]
+    check("target node can read its task",
+          client.get(f"/api/fleet/tasks/{to_beta}", headers=beta).status_code == 200)
+    check("submitting node can read its task",
+          client.get(f"/api/fleet/tasks/{to_beta}", headers=auth).status_code == 200)
+
+    local = TestClient(app_module.app, client=("127.0.0.1", 50000))
+    r = local.get("/")
+    check("board served on direct loopback", r.status_code == 200, str(r.status_code))
+    r = local.get("/", headers={"X-Forwarded-For": "203.0.113.9"})
+    check("board hidden behind a proxy (404)", r.status_code == 404, str(r.status_code))
+    r = TestClient(app_module.app, client=("203.0.113.9", 50000)).get("/")
+    check("board hidden from remote clients (404)", r.status_code == 404, str(r.status_code))
+
+    conn = worker.sqlite3.connect(str(cfg.db_path))
+    conn.execute("UPDATE fleet_tasks SET error = ? WHERE task_id = ?",
+                 ("<script>alert(1)</script>", to_beta))
+    conn.commit()
+    conn.close()
+    page = local.get("/").text
+    check("board escapes task text", "<script>alert(1)</script>" not in page and "&lt;script&gt;" in page)
+
     # ------------------------------------------------------------ 7. long-poll
     print("\n[7] Long-poll wake endpoint")
     r = client.get("/api/fleet/tasks/internal/wait-task", headers=auth)

@@ -54,8 +54,8 @@ cd hermes-fleet-memory
 # 2. Run automated wizard in Standalone Mode
 python setup.py --role standalone --non-interactive
 
-# 3. Test local vector search & memory recall immediately
-python client/fleet_memory.py --test
+# 3. Check the node (bounded preflight, always exits)
+python client/fleet_memory.py --doctor
 ```
 
 #### Connect to your AI Client in 1 Step:
@@ -267,6 +267,11 @@ The wizard will:
 
 ## Deployment Models
 
+> **Every deployment runs on infrastructure you own.** There is no shared, hosted or
+> default Fleet Memory instance: you create your own Qdrant cluster (free tier is fine)
+> and your own control plane, and the client refuses to start against anything it was
+> not explicitly pointed at. Run `python fleet_wizard.py` and it will walk you through it.
+
 Choose the architecture that matches your setup:
 
 | Option | Infrastructure Needed | Cost | Setup Time | Best For |
@@ -286,19 +291,24 @@ Ideal for operators running an Oracle Cloud Always-Free ARM64 VPS, Hetzner, or D
 git clone https://github.com/amrlazw/hermes-fleet-memory.git
 cd hermes-fleet-memory/server
 
-# 1. Generate 256-bit cluster secret
-python3 -c "import secrets; print(secrets.token_hex(32))"
+# 1. Generate two separate 256-bit secrets: one for Qdrant, one for the tunnel
+python3 -c "import secrets; print(secrets.token_hex(32))"   # FLEET_QDRANT_KEY
+python3 -c "import secrets; print(secrets.token_hex(32))"   # FLEET_TUNNEL_KEY
 
 # 2. Configure Caddy TLS Gatekeeper
 cp Caddyfile.example Caddyfile
-# Edit Caddyfile with your domain (e.g. brain.yourdomain.com) and token
+# Edit Caddyfile with your domain (e.g. brain.yourdomain.com) and FLEET_TUNNEL_KEY
 
 # 3. Launch the Stack
-export FLEET_QDRANT_KEY="your_256bit_token"
+export FLEET_QDRANT_KEY="your_qdrant_key"
 docker compose up -d
 ```
 
-*(For bare-metal deployments without Docker, native systemd units with a ~450MB RAM footprint are provided in `server/systemd/`).*
+WSTunnel binds `127.0.0.1:8443` behind Caddy and only forwards what
+`server/wstunnel-restrictions.yaml` allows: member nodes reaching the hub's Qdrant, and
+publishing their desktop bridge on hub loopback port 8099. Anything else is refused.
+
+*(For bare-metal deployments without Docker, native systemd units with a ~450MB RAM footprint are provided in `server/systemd/`. Install the tunnel allowlist alongside them: `sudo install -D -m 644 wstunnel-restrictions.yaml /etc/wstunnel/restrictions.yaml`).*
 
 ---
 
@@ -539,13 +549,13 @@ Rigorous cross-hardware benchmarking measured between **Node 1** (Oracle Cloud A
 
 ## 📊 Anonymous Architecture Telemetry
 
-To measure real-world framework adoption and guide maintenance priorities, `hermes-fleet-memory` includes transparent, zero-PII telemetry:
+Telemetry is **off by default**. Nothing is sent to the maintainer unless you set `FLEET_TELEMETRY=1`:
 
 1. **GitHub Live Status Badge:** Hosted dynamically at `https://fleet.republikus.my/api/telemetry/badge.svg`. Aggregates daily README impressions with zero third-party trackers.
-2. **Anonymous Startup Beacon:** On initialization (`python client/fleet_memory.py --init`), clients send a non-blocking, asynchronous JSON beacon:
+2. **Anonymous Setup Beacon (opt-in):** With `FLEET_TELEMETRY=1`, `python client/fleet_memory.py --init` and the setup wizard send one non-blocking JSON beacon. The MCP server, `--doctor` and `--warm` never send it:
    - **Payload:** An opaque 16-character SHA-256 instance hash, OS platform, architecture version, and domain mode (`work` / `personal` / `all`).
    - **Zero PII:** IP addresses, file paths, directory names, and prompt contents are never logged or stored.
-   - **Strict Opt-Out:** Completely disabled if either `DO_NOT_TRACK=1` or `FLEET_TELEMETRY=0` is set in the environment.
+   - **Opt-In Only:** Sent only when `FLEET_TELEMETRY=1`. `DO_NOT_TRACK=1` overrides it.
 
 ---
 
@@ -592,4 +602,4 @@ non-zero when something is wrong — safe for an agent to run unattended.
 | `FLEET_QDRANT_KEY` | – | Qdrant API key |
 | `FLEET_QDRANT_TIMEOUT` | `10` | Seconds before a vector call gives up |
 | `FASTEMBED_THREADS` | `2` | Embedding worker threads |
-| `DO_NOT_TRACK` / `FLEET_TELEMETRY` | – | Set `1` / `0` to disable the startup beacon |
+| `FLEET_TELEMETRY` / `DO_NOT_TRACK` | off | Set `FLEET_TELEMETRY=1` to opt in to the setup beacon; `DO_NOT_TRACK=1` always disables it |

@@ -21,6 +21,12 @@ except ImportError:
     except ImportError:
         def extract_entities_and_relations(t): return [], []
 
+# No stub fallback here: a missing scanner must fail loudly, not disable the guard.
+try:
+    from secret_scan import find_secrets
+except ImportError:
+    from client.secret_scan import find_secrets
+
 # Silence warnings to protect stdio JSON-RPC stream
 warnings.filterwarnings("ignore")
 
@@ -99,13 +105,123 @@ FLEET_VERSION = "1.0.0"
 
 # Optional Desktop Bridge & Control Plane URLs
 BRIDGE_PORT = int(os.getenv("FLEET_BRIDGE_PORT", "8099"))
-FLEET_TASKS_URL = os.getenv("FLEET_TASKS_URL", "https://fleet.republikus.my").rstrip("/")
-FLEET_KEY = os.getenv("FLEET_QDRANT_KEY", os.getenv("FLEET_CLUSTER_SECRET", ""))
-FLEET_BRIDGE_KEY = os.getenv("FLEET_BRIDGE_KEY") or os.getenv("FLEET_QDRANT_KEY") or os.getenv("FLEET_CLUSTER_SECRET", "")
+# Fleet control plane endpoint. Deliberately has NO default: an unconfigured node
+# must never ship task payloads or bearer tokens to somebody else's hub. Point this
+# at the control plane YOU deployed (see server/control-plane/), e.g.
+#   FLEET_TASKS_URL=http://127.0.0.1:8088
+FLEET_TASKS_URL = os.getenv("FLEET_TASKS_URL", "").rstrip("/")
+
+
+def _auth_file_key() -> str:
+    """fleet_key from the auth files server/control-plane/client_delegate.py also reads."""
+    candidates = []
+    if os.getenv("FLEET_HOME"):
+        candidates.append(os.path.join(os.getenv("FLEET_HOME"), "auth.json"))
+    candidates.append(os.path.join(os.path.expanduser("~"), ".hermes", "fleet_auth.json"))
+    for path in candidates:
+        try:
+            with open(path, encoding="utf-8") as f:
+                key = json.load(f).get("fleet_key", "")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if key:
+            return key
+    return ""
+
+
+def _resolve_task_key():
+    """Control-plane bearer token and the name of the setting it came from.
+
+    FLEET_QDRANT_KEY is accepted last so existing nodes keep delegating, but it
+    makes the vector database credential double as the task-plane token. The
+    task tools flag that in their response and --doctor warns about it.
+    """
+    if os.getenv("FLEET_KEY"):
+        return os.getenv("FLEET_KEY"), "FLEET_KEY"
+    key = _auth_file_key()
+    if key:
+        return key, "fleet_auth.json"
+    if os.getenv("FLEET_CLUSTER_SECRET"):
+        return os.getenv("FLEET_CLUSTER_SECRET"), "FLEET_CLUSTER_SECRET"
+    if os.getenv("FLEET_QDRANT_KEY"):
+        return os.getenv("FLEET_QDRANT_KEY"), "FLEET_QDRANT_KEY"
+    return "", ""
+
+
+FLEET_KEY, FLEET_KEY_SOURCE = _resolve_task_key()
+# The desktop bridge refuses to start without its own FLEET_BRIDGE_KEY, so there
+# is nothing to fall back to: sending the Qdrant key would only leak it to the
+# bridge and fail auth.
+FLEET_BRIDGE_KEY = os.getenv("FLEET_BRIDGE_KEY", "")
 
 # Global singletons
 _client = None
 _embedder = None
+
+
+def _task_plane_error() -> Dict[str, Any]:
+    """Uniform refusal when no control plane is configured for this node."""
+    return {
+        "status": "error",
+        "message": (
+            "Fleet control plane not configured. Set FLEET_TASKS_URL to the hub you "
+            "run yourself (e.g. http://127.0.0.1:8088, or the public URL of a control "
+            "plane deployed from server/control-plane/). Task delegation stays disabled "
+            "until then - this client never falls back to a shared or third-party hub."
+        ),
+    }
+
+
+def _task_key_warning() -> Optional[str]:
+    """Set when the task-plane token is the Qdrant key, so whoever holds one holds both."""
+    if FLEET_KEY and QDRANT_API_KEY and FLEET_KEY == QDRANT_API_KEY:
+        return ("The control-plane token is the Qdrant key. Issue this node its own token "
+                "(FLEET_KEY_<NODE> on the control plane) and set it as FLEET_KEY here.")
+    return None
+
+
+def _receipt_jwks():
+    """Receipt verification keys, and whether they were pinned locally or fetched.
+
+    A key fetched from the same hub that produced the receipt only proves the hub
+    agrees with itself. FLEET_RECEIPT_JWKS pins a local copy of the hub's
+    fleet_keys.json, so a compromised or impersonated hub cannot sign its own receipts.
+    """
+    pinned = os.getenv("FLEET_RECEIPT_JWKS")
+    if pinned:
+        with open(os.path.expanduser(pinned), encoding="utf-8") as f:
+            return json.load(f), "pinned"
+    import urllib.request
+    with urllib.request.urlopen(f"{FLEET_TASKS_URL}/.well-known/fleet-keys.json", timeout=5) as resp:
+        return json.loads(resp.read().decode("utf-8")), "fetched_from_hub"
+
+
+def _jwks_public_key(jwks: Dict[str, Any], kid: Optional[str]):
+    """The Ed25519 key for kid. Accepts base64url 'x' (RFC 7518, what server/control-plane
+    publishes) and legacy hex 'x', like server/control-plane/keys.py."""
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+    for entry in jwks.get("keys", []):
+        if kid and entry.get("kid") != kid:
+            continue
+        x = entry.get("x", "")
+        if len(x) == 64 and all(c in "0123456789abcdefABCDEF" for c in x):
+            raw = bytes.fromhex(x)
+        else:
+            raw = base64.urlsafe_b64decode(x + "=" * (-len(x) % 4))
+        return ed25519.Ed25519PublicKey.from_public_bytes(raw)
+    raise KeyError(f"no Ed25519 key for kid={kid!r} in the receipt key set")
+
+
+def _bridge_key_error() -> Dict[str, Any]:
+    return {
+        "status": "error",
+        "message": (
+            "FLEET_BRIDGE_KEY is not set. Set it to the bridge key configured on the "
+            "workstation running desktop_bridge.py. The Qdrant key is not accepted."
+        ),
+    }
 
 
 def get_client():
@@ -302,20 +418,43 @@ def fleet_graph_query(
 
         query_filter = models.Filter(must=must_conditions)
 
-        # Retrieve points matching the domain filter to traverse entities & relations
-        scroll_res = client.scroll(
-            collection_name=COLLECTION_NAME,
-            scroll_filter=query_filter,
-            limit=50,
-            with_payload=True
-        )
-        points, _ = scroll_res if isinstance(scroll_res, tuple) else (getattr(scroll_res, "points", []), None)
-
         connected_relations = []
         related_entities = set()
         matched_memories = []
 
-        for p in points:
+        # Page through every card in the authorised domains. A single scroll(limit=50)
+        # silently ignored anything past the first page. The scan cap bounds the
+        # call on very large collections and is reported, not hidden.
+        scan_cap = int(os.getenv("FLEET_GRAPH_SCAN_LIMIT", "5000"))
+        scanned = 0
+        truncated = False
+        offset = None
+
+        def _next_page():
+            nonlocal offset, scanned, truncated
+            if scanned >= scan_cap:
+                truncated = offset is not None
+                return []
+            scroll_res = client.scroll(
+                collection_name=COLLECTION_NAME,
+                scroll_filter=query_filter,
+                limit=min(256, scan_cap - scanned),
+                offset=offset,
+                with_payload=True,
+                with_vectors=False
+            )
+            page, offset = scroll_res if isinstance(scroll_res, tuple) else (getattr(scroll_res, "points", []), None)
+            scanned += len(page)
+            return page
+
+        def _points():
+            while True:
+                page = _next_page()
+                yield from page
+                if not page or offset is None:
+                    return
+
+        for p in _points():
             payload = p.payload or {}
             ents = [e.lower() for e in payload.get("entities", [])]
             rels = payload.get("relations", [])
@@ -349,7 +488,9 @@ def fleet_graph_query(
             "connected_entities": sorted(list(related_entities)),
             "relations": connected_relations[:20],
             "matched_memories_count": len(matched_memories),
-            "memories": matched_memories
+            "memories": matched_memories,
+            "scanned_points": scanned,
+            "truncated": truncated
         }
     except Exception as e:
         return {
@@ -386,6 +527,22 @@ def fleet_memory_store(
     effective_domain = valid_domains[0] if valid_domains else (target_domain or "shared")
     if effective_domain == "all":
         effective_domain = "shared"
+
+    # Every node can read `shared`, so a credential there is exposed fleet-wide.
+    # Refuse it outright; elsewhere, store but tell the caller.
+    secret_findings = find_secrets(text)
+    if secret_findings and effective_domain == "shared":
+        return {
+            "status": "rejected",
+            "error_type": "secret_detected",
+            "domain": effective_domain,
+            "findings": secret_findings,
+            "message": (
+                "Refused: the card contains what looks like a credential "
+                f"({', '.join(secret_findings)}). Every node can read the shared domain. "
+                "Store a pointer to where the secret lives (e.g. '$FLEET_HOME/.env, FLEET_KEY') instead."
+            ),
+        }
 
     now = timestamp if timestamp is not None else time.time()
     revision = 1
@@ -511,7 +668,7 @@ def fleet_memory_store(
             ]
         )
 
-        return {
+        result = {
             "status": "success",
             "id": point_id,
             "domain": effective_domain,
@@ -520,6 +677,12 @@ def fleet_memory_store(
             "revision": revision,
             "author_node": node_name
         }
+        if secret_findings:
+            result["secret_warning"] = (
+                f"Stored, but the card looks like it contains a credential ({', '.join(secret_findings)}). "
+                "Anyone holding the Qdrant key can read it."
+            )
+        return result
     except PermissionError:
         raise
     except Exception as e:
@@ -592,10 +755,12 @@ if HAS_MCP and mcp:
         """Check if remote workstation bridge is online and return live GPU telemetry."""
         import json
         import urllib.request
+        if not FLEET_BRIDGE_KEY:
+            return _bridge_key_error()
         try:
             req = urllib.request.Request(
                 f"http://127.0.0.1:{BRIDGE_PORT}/health",
-                headers={"Authorization": f"Bearer {QDRANT_API_KEY}"}
+                headers={"Authorization": f"Bearer {FLEET_BRIDGE_KEY}"}
             )
             with urllib.request.urlopen(req, timeout=3) as resp:
                 if resp.status == 200:
@@ -617,6 +782,8 @@ if HAS_MCP and mcp:
         import json
         import urllib.error
         import urllib.request
+        if not FLEET_BRIDGE_KEY:
+            return _bridge_key_error()
         try:
             payload = {}
             if action:
@@ -652,6 +819,8 @@ if HAS_MCP and mcp:
         import json
         import urllib.error
         import urllib.request
+        if not FLEET_BRIDGE_KEY:
+            return _bridge_key_error()
         try:
             data = json.dumps({"path": path}).encode("utf-8")
             req = urllib.request.Request(
@@ -684,6 +853,8 @@ if HAS_MCP and mcp:
         import urllib.error
         import urllib.parse
         import urllib.request
+        if not FLEET_BRIDGE_KEY:
+            return _bridge_key_error()
         try:
             url = f"http://127.0.0.1:{BRIDGE_PORT}/download?path=" + urllib.parse.quote(remote_path)
             req = urllib.request.Request(
@@ -729,6 +900,8 @@ if HAS_MCP and mcp:
         import os
         import urllib.error
         import urllib.request
+        if not FLEET_BRIDGE_KEY:
+            return _bridge_key_error()
         try:
             payload = json.dumps({"path": remote_dir}).encode("utf-8")
             req = urllib.request.Request(
@@ -769,13 +942,15 @@ if HAS_MCP and mcp:
         import json
         import urllib.error
         import urllib.request
+        if not FLEET_BRIDGE_KEY:
+            return _bridge_key_error()
         try:
             data = json.dumps({"action": action, "delay": delay_seconds}).encode("utf-8")
             req = urllib.request.Request(
                 f"http://127.0.0.1:{BRIDGE_PORT}/power",
                 data=data,
                 headers={
-                    "Authorization": f"Bearer {QDRANT_API_KEY}",
+                    "Authorization": f"Bearer {FLEET_BRIDGE_KEY}",
                     "Content-Type": "application/json"
                 }
             )
@@ -798,7 +973,8 @@ if HAS_MCP and mcp:
         target_node: str,
         action: str,
         params: Optional[Dict[str, Any]] = None,
-        priority: str = "normal"
+        priority: str = "normal",
+        idempotency_key: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Asynchronously delegate an allowlisted task to another fleet node.
@@ -806,17 +982,22 @@ if HAS_MCP and mcp:
         - action: Action to perform ('telegram_notify', 'fleet_health_ping', 'gpu_batch').
         - params: Parameters dict (e.g. {'message': 'Hello from Levi'}).
         - priority: 'low', 'normal', or 'critical'.
+        - idempotency_key: Optional 8-128 char key. Reuse the same key when retrying a call
+          that timed out, and the control plane returns the original task instead of queuing
+          a duplicate. Omit it and every call queues a new task.
         """
         import json
         import urllib.error
         import urllib.request
+        if not FLEET_TASKS_URL:
+            return _task_plane_error()
         if not FLEET_KEY:
             return {
                 "status": "error",
                 "message": "Missing FLEET_KEY. Configure FLEET_KEY in environment or ~/.hermes/fleet_auth.json."
             }
 
-        idempotency_key = f"mcp_{action}_{int(time.time() * 1000)}"
+        idempotency_key = idempotency_key or f"mcp_{action}_{uuid.uuid4().hex}"
         payload = {
             "target": target_node.lower(),
             "action": action,
@@ -839,15 +1020,20 @@ if HAS_MCP and mcp:
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
-                return {
+                accepted = {
                     "status": "accepted",
                     "task_id": res.get("task_id"),
                     "task_status": res.get("status"),
                     "target": target_node,
                     "action": action,
                     "eta_seconds": res.get("eta_seconds", 1),
+                    "idempotency_key": idempotency_key,
+                    "idempotent_replay": bool(res.get("idempotent_replay")),
                     "message": f"Task successfully queued for {target_node}. Use fleet_task_status(task_id='{res.get('task_id')}') to verify receipt."
                 }
+                if _task_key_warning():
+                    accepted["key_warning"] = _task_key_warning()
+                return accepted
         except urllib.error.HTTPError as e:
             try:
                 return json.loads(e.read().decode("utf-8"))
@@ -868,6 +1054,8 @@ if HAS_MCP and mcp:
         import json
         import urllib.error
         import urllib.request
+        if not FLEET_TASKS_URL:
+            return _task_plane_error()
         if not FLEET_KEY:
             return {
                 "status": "error",
@@ -884,14 +1072,11 @@ if HAS_MCP and mcp:
                 task_data = json.loads(resp.read().decode("utf-8"))
 
             verified = None
+            key_source = None
             if verify_receipt and task_data.get("status") == "completed" and task_data.get("ed25519_signature"):
                 try:
-                    from cryptography.hazmat.primitives.asymmetric import ed25519
-                    keys_url = f"{FLEET_TASKS_URL}/.well-known/fleet-keys.json"
-                    with urllib.request.urlopen(keys_url, timeout=5) as k_resp:
-                        jwks = json.loads(k_resp.read().decode("utf-8"))
-                        pub_hex = jwks["keys"][0]["x"]
-                    pub_key = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(pub_hex))
+                    jwks, key_source = _receipt_jwks()
+                    pub_key = _jwks_public_key(jwks, task_data.get("kid"))
                     receipt_payload = {
                         "completed_at": round(task_data["completed_at"], 3),
                         "result": task_data["result"],
@@ -912,6 +1097,8 @@ if HAS_MCP and mcp:
                 "result": task_data.get("result"),
                 "error": task_data.get("error"),
                 "receipt_verified": verified,
+                "receipt_key_source": key_source,
+                "verification_error": task_data.get("verification_error"),
                 "kid": task_data.get("kid"),
                 "created_at": task_data.get("created_at"),
                 "completed_at": task_data.get("completed_at")
@@ -959,12 +1146,17 @@ def bootstrap_collection():
         print(f"Collection '{COLLECTION_NAME}' already active.")
 
 
+def telemetry_opted_in() -> bool:
+    """Telemetry is off unless FLEET_TELEMETRY=1 is set, and DO_NOT_TRACK=1 always wins."""
+    return os.getenv("FLEET_TELEMETRY") == "1" and os.getenv("DO_NOT_TRACK") != "1"
+
+
 def send_anonymous_beacon():
     """
-    Sends an anonymous, non-blocking telemetry beacon on client startup.
-    Respects DO_NOT_TRACK=1 and FLEET_TELEMETRY=0 environment variables.
+    Sends an anonymous, non-blocking telemetry beacon when a node is initialised.
+    Opt-in: nothing is sent unless FLEET_TELEMETRY=1.
     """
-    if os.getenv("DO_NOT_TRACK") == "1" or os.getenv("FLEET_TELEMETRY") == "0":
+    if not telemetry_opted_in():
         return
     import threading
     def _ping():
@@ -1094,6 +1286,23 @@ def cmd_doctor(args) -> int:
         print(f"    [WARN] not cached ({cache}) - first search downloads ~130MB.")
         print("           run with --warm to pre-download it now.")
 
+    # Warnings only: a fused key is a hardening gap, not a reason to fail a working node.
+    print("  secret separation:")
+    if not FLEET_BRIDGE_KEY:
+        print("    [INFO] FLEET_BRIDGE_KEY unset - desktop_* tools are disabled on this node.")
+    elif QDRANT_API_KEY and FLEET_BRIDGE_KEY == QDRANT_API_KEY:
+        print("    [WARN] FLEET_BRIDGE_KEY equals the Qdrant key - the bridge will warn and a")
+        print("           stolen database key grants bridge access. Generate a separate one.")
+    else:
+        print("    [OK]   bridge key is separate from the Qdrant key")
+    if not FLEET_KEY:
+        print("    [INFO] no control-plane token - fleet_task_* tools are disabled on this node.")
+    elif _task_key_warning():
+        print(f"    [WARN] control-plane token comes from {FLEET_KEY_SOURCE} and equals the Qdrant key.")
+        print("           Issue this node its own token on the control plane and set FLEET_KEY.")
+    else:
+        print(f"    [OK]   control-plane token from {FLEET_KEY_SOURCE}, separate from the Qdrant key")
+
     print(f"  vector engine    : probing (timeout {QDRANT_TIMEOUT}s)...")
     ok, ms, detail = _probe_qdrant()
     if ok:
@@ -1103,7 +1312,9 @@ def cmd_doctor(args) -> int:
             print(f"    [WARN] '{COLLECTION_NAME}' missing - run --init or --bootstrap.")
     else:
         print(f"    [FAIL] unreachable after {ms:.0f}ms: {detail}")
-        print("           check the WSTunnel/Tailscale bridge, or pass --url for managed Qdrant.")
+        print("           No cluster yet? Create your own free one at https://cloud.qdrant.io")
+        print("           then run: python fleet_wizard.py  (or pass --url/--key here).")
+        print("           Self-hosting already? Check your WSTunnel/Tailscale bridge is up.")
         problems.append("vector engine unreachable")
 
     print()
@@ -1273,13 +1484,12 @@ def main(argv=None) -> int:
     # agents running the documented "--init" command.
     args = _build_parser().parse_args(sys.argv[1:] if argv is None else argv)
 
-    send_anonymous_beacon()
-
     if args.doctor:
         return cmd_doctor(args)
     if args.warm:
         return cmd_warm(args)
     if args.init:
+        send_anonymous_beacon()
         return cmd_init(args)
     if args.bootstrap:
         _apply_overrides(args)

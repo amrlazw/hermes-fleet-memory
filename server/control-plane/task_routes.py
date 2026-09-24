@@ -157,7 +157,9 @@ async def wait_task(node: str = Depends(authenticate_node)):
 def get_task(task_id: str, node: str = Depends(authenticate_node),
              db: sqlite3.Connection = Depends(get_db)):
     row = db.execute("SELECT * FROM fleet_tasks WHERE task_id = ?", (task_id,)).fetchone()
-    if not row:
+    # Only the submitting node and the target node may read a task and its result.
+    # 404 rather than 403, so other nodes cannot probe which task ids exist.
+    if not row or node not in (row["caller"], row["target"]):
         raise HTTPException(status_code=404, detail="Unknown task_id")
     return _row_to_dict(row)
 

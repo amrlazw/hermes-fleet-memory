@@ -196,9 +196,10 @@ error instead of a summary.
 ### B.7 Delegating from inside an agent (MCP)
 
 The `fleet_task_delegate` / `fleet_task_status` MCP tools use the same plane.
-They resolve the endpoint from `FLEET_TASKS_URL` (default `http://127.0.0.1:8088`)
-or from `~/.hermes/fleet_auth.json`. **Never assume a remote fleet host exists** —
-if the human's plane is local, that default is already correct.
+They resolve the endpoint from `FLEET_TASKS_URL` or `~/.hermes/fleet_auth.json`.
+There is **no default endpoint**: with `FLEET_TASKS_URL` unset both tools refuse
+with a configuration error rather than contacting any hub. **Never assume a remote
+fleet host exists** — if the human's plane is local, set `FLEET_TASKS_URL=http://127.0.0.1:8088`.
 
 Allowlisted actions only:
 
@@ -248,6 +249,15 @@ Allowlisted actions only:
 
 9. **CPU Pinning Is Opt-In.**
    `CPUAffinity` ships commented out in the service templates. Enable it only when the host also runs latency-sensitive inference — pinning a normal laptop or desktop to one core is a performance regression.
+
+10. **NEVER Store Credentials in Shared Vector Memory.**
+    A credential written to a memory card is a credential published wherever that card is readable. This is not hypothetical: the coordination feed was world-readable and plaintext keys were found in it.
+    * Store a **pointer** to the secret's location (`see ~/.hermes/.env`), never the value.
+    * Never write a credential into a card, a task payload, a slot, or a runbook entry.
+    * If a secret was ever written to memory, treat it as disclosed: **rotate it**, then redact the card.
+    * Prefer loading secrets from a `0600` env file (`EnvironmentFile=`) over inline `Environment=` lines — `systemctl cat` is world-readable.
+    * Ship no credential defaults in source. Fail to start instead.
+    * `fleet_memory_store` enforces this: a `shared` write that matches a credential pattern (256-bit hex keys, `flk_`, `tok_`, `cfut_`, `sk-`, GitHub, AWS, Slack and Telegram tokens, private key blocks) returns `status: rejected`, `error_type: secret_detected`. Do not work around it. Rewrite the card with a pointer. Writes to other domains are stored but carry a `secret_warning`.
 
 ---
 

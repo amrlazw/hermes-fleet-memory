@@ -11,10 +11,19 @@ elif [ -f ~/.hermes/.env ]; then
 fi
 
 SERVER_HOST="${FLEET_SERVER_HOST:-brain.example.com}"
-FLEET_KEY="${FLEET_QDRANT_KEY:-}"
+# The tunnel key is the X-Fleet-Key header Caddy checks. It should be its own
+# secret: the value sits on this process's command line, which any local process
+# can read, so it must not also be the Qdrant key.
+TUNNEL_KEY="${FLEET_TUNNEL_KEY:-}"
+if [ -z "$TUNNEL_KEY" ] && [ -n "${FLEET_QDRANT_KEY:-}" ]; then
+    echo "Warning: FLEET_TUNNEL_KEY is not set; falling back to FLEET_QDRANT_KEY." >&2
+    echo "         That exposes the database key on the process command line. Set a separate" >&2
+    echo "         FLEET_TUNNEL_KEY here and in the hub Caddyfile." >&2
+    TUNNEL_KEY="$FLEET_QDRANT_KEY"
+fi
 
-if [ -z "$FLEET_KEY" ]; then
-    echo "Error: FLEET_QDRANT_KEY is not set in environment or .env"
+if [ -z "$TUNNEL_KEY" ]; then
+    echo "Error: FLEET_TUNNEL_KEY is not set in environment or .env"
     exit 1
 fi
 
@@ -34,7 +43,7 @@ while true; do
     wstunnel client \
         -L tcp://127.0.0.1:6333:127.0.0.1:6333 \
         -R tcp://127.0.0.1:8099:127.0.0.1:8099 \
-        --http-headers "X-Fleet-Key: ${FLEET_KEY}" \
+        --http-headers "X-Fleet-Key: ${TUNNEL_KEY}" \
         --websocket-ping-frequency 20s \
         -P tunnel \
         "wss://${SERVER_HOST}" || EXIT_CODE=$?
