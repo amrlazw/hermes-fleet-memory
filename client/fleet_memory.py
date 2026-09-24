@@ -384,20 +384,43 @@ def fleet_graph_query(
 
         query_filter = models.Filter(must=must_conditions)
 
-        # Retrieve points matching the domain filter to traverse entities & relations
-        scroll_res = client.scroll(
-            collection_name=COLLECTION_NAME,
-            scroll_filter=query_filter,
-            limit=50,
-            with_payload=True
-        )
-        points, _ = scroll_res if isinstance(scroll_res, tuple) else (getattr(scroll_res, "points", []), None)
-
         connected_relations = []
         related_entities = set()
         matched_memories = []
 
-        for p in points:
+        # Page through every card in the authorised domains. A single scroll(limit=50)
+        # silently ignored anything past the first page. The scan cap bounds the
+        # call on very large collections and is reported, not hidden.
+        scan_cap = int(os.getenv("FLEET_GRAPH_SCAN_LIMIT", "5000"))
+        scanned = 0
+        truncated = False
+        offset = None
+
+        def _next_page():
+            nonlocal offset, scanned, truncated
+            if scanned >= scan_cap:
+                truncated = offset is not None
+                return []
+            scroll_res = client.scroll(
+                collection_name=COLLECTION_NAME,
+                scroll_filter=query_filter,
+                limit=min(256, scan_cap - scanned),
+                offset=offset,
+                with_payload=True,
+                with_vectors=False
+            )
+            page, offset = scroll_res if isinstance(scroll_res, tuple) else (getattr(scroll_res, "points", []), None)
+            scanned += len(page)
+            return page
+
+        def _points():
+            while True:
+                page = _next_page()
+                yield from page
+                if not page or offset is None:
+                    return
+
+        for p in _points():
             payload = p.payload or {}
             ents = [e.lower() for e in payload.get("entities", [])]
             rels = payload.get("relations", [])
@@ -431,7 +454,9 @@ def fleet_graph_query(
             "connected_entities": sorted(list(related_entities)),
             "relations": connected_relations[:20],
             "matched_memories_count": len(matched_memories),
-            "memories": matched_memories
+            "memories": matched_memories,
+            "scanned_points": scanned,
+            "truncated": truncated
         }
     except Exception as e:
         return {

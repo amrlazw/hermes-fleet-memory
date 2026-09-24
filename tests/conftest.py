@@ -73,14 +73,18 @@ class MockQdrantStorage:
         m.collections = [col]
         return m
 
-    def scroll(self, collection_name, scroll_filter=None, limit=10, with_payload=True):
+    def scroll(self, collection_name, scroll_filter=None, limit=10, offset=None,
+               with_payload=True, with_vectors=False):
         items = []
         for pid, data in self.points.items():
             m = MagicMock()
             m.id = pid
             m.payload = data["payload"]
             items.append(m)
-        return items[:limit], None
+        # Paginate like Qdrant: return a next-page offset while points remain.
+        start = offset or 0
+        end = start + limit
+        return items[start:end], (end if end < len(items) else None)
 
 
 @pytest.fixture(autouse=True)
