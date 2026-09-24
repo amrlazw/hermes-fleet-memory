@@ -1,5 +1,7 @@
 # hermes-fleet-memory: Production Caddy Gatekeeper
 # Terminates public TLS and restricts ingress strictly to requests presenting the 256-bit PSK.
+# The PSK is FLEET_TUNNEL_KEY on member nodes. Keep it different from FLEET_QDRANT_KEY.
+# WSTunnel listens on 127.0.0.1:8443 only, so this block is the only way in.
 
 brain.yourdomain.com {
     # Matcher for authorized fleet nodes presenting the pre-shared key

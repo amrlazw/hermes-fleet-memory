@@ -16,10 +16,16 @@ services:
     image: erebe/wstunnel:v10.7.1
     container_name: fleet-wstunnel
     restart: always
+    # Loopback only: Caddy on :443 is the sole public entry and checks X-Fleet-Key.
+    # Binding 0.0.0.0 here let anyone who reached :8443 skip that check.
+    # The restriction file limits tunnels to the hub's Qdrant and the bridge port.
     command: >
       server
       --websocket-ping-frequency 30s
-      ws://0.0.0.0:8443
+      --restrict-config /etc/wstunnel/restrictions.yaml
+      ws://127.0.0.1:8443
+    volumes:
+      - ./wstunnel-restrictions.yaml:/etc/wstunnel/restrictions.yaml:ro
     network_mode: host
 
   caddy:

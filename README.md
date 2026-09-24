@@ -291,19 +291,24 @@ Ideal for operators running an Oracle Cloud Always-Free ARM64 VPS, Hetzner, or D
 git clone https://github.com/amrlazw/hermes-fleet-memory.git
 cd hermes-fleet-memory/server
 
-# 1. Generate 256-bit cluster secret
-python3 -c "import secrets; print(secrets.token_hex(32))"
+# 1. Generate two separate 256-bit secrets: one for Qdrant, one for the tunnel
+python3 -c "import secrets; print(secrets.token_hex(32))"   # FLEET_QDRANT_KEY
+python3 -c "import secrets; print(secrets.token_hex(32))"   # FLEET_TUNNEL_KEY
 
 # 2. Configure Caddy TLS Gatekeeper
 cp Caddyfile.example Caddyfile
-# Edit Caddyfile with your domain (e.g. brain.yourdomain.com) and token
+# Edit Caddyfile with your domain (e.g. brain.yourdomain.com) and FLEET_TUNNEL_KEY
 
 # 3. Launch the Stack
-export FLEET_QDRANT_KEY="your_256bit_token"
+export FLEET_QDRANT_KEY="your_qdrant_key"
 docker compose up -d
 ```
 
-*(For bare-metal deployments without Docker, native systemd units with a ~450MB RAM footprint are provided in `server/systemd/`).*
+WSTunnel binds `127.0.0.1:8443` behind Caddy and only forwards what
+`server/wstunnel-restrictions.yaml` allows: member nodes reaching the hub's Qdrant, and
+publishing their desktop bridge on hub loopback port 8099. Anything else is refused.
+
+*(For bare-metal deployments without Docker, native systemd units with a ~450MB RAM footprint are provided in `server/systemd/`. Install the tunnel allowlist alongside them: `sudo install -D -m 644 wstunnel-restrictions.yaml /etc/wstunnel/restrictions.yaml`).*
 
 ---
 

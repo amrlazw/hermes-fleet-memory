@@ -1,0 +1,30 @@
+# WSTunnel allowlist for the fleet hub.
+#
+# Without this file the server forwards to ANY destination a client names, so
+# anyone who reaches the tunnel port has an open proxy into the hub (including
+# 127.0.0.1:6333). Everything not listed here is denied.
+#
+# Member nodes need exactly two tunnels:
+#   -L tcp://127.0.0.1:6333:127.0.0.1:6333   forward to the hub's Qdrant
+#   -R tcp://127.0.0.1:8099:127.0.0.1:8099   publish the node's desktop bridge on hub loopback
+restrictions:
+  - name: "fleet-memory"
+    description: "Hub Qdrant forward and loopback-only desktop bridge reverse tunnel"
+    match:
+      - !Any
+    allow:
+      - !Tunnel
+        protocol:
+          - Tcp
+        port:
+          - 6333
+        host: ^(127\.0\.0\.1|localhost)$
+        cidr:
+          - 127.0.0.1/32
+      - !ReverseTunnel
+        protocol:
+          - Tcp
+        port:
+          - 8099
+        cidr:
+          - 127.0.0.1/32
