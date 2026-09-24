@@ -21,6 +21,12 @@ except ImportError:
     except ImportError:
         def extract_entities_and_relations(t): return [], []
 
+# No stub fallback here: a missing scanner must fail loudly, not disable the guard.
+try:
+    from secret_scan import find_secrets
+except ImportError:
+    from client.secret_scan import find_secrets
+
 # Silence warnings to protect stdio JSON-RPC stream
 warnings.filterwarnings("ignore")
 
@@ -463,6 +469,22 @@ def fleet_memory_store(
     if effective_domain == "all":
         effective_domain = "shared"
 
+    # Every node can read `shared`, so a credential there is exposed fleet-wide.
+    # Refuse it outright; elsewhere, store but tell the caller.
+    secret_findings = find_secrets(text)
+    if secret_findings and effective_domain == "shared":
+        return {
+            "status": "rejected",
+            "error_type": "secret_detected",
+            "domain": effective_domain,
+            "findings": secret_findings,
+            "message": (
+                "Refused: the card contains what looks like a credential "
+                f"({', '.join(secret_findings)}). Every node can read the shared domain. "
+                "Store a pointer to where the secret lives (e.g. '$FLEET_HOME/.env, FLEET_KEY') instead."
+            ),
+        }
+
     now = timestamp if timestamp is not None else time.time()
     revision = 1
     dedup_mode = "episodic_append"
@@ -587,7 +609,7 @@ def fleet_memory_store(
             ]
         )
 
-        return {
+        result = {
             "status": "success",
             "id": point_id,
             "domain": effective_domain,
@@ -596,6 +618,12 @@ def fleet_memory_store(
             "revision": revision,
             "author_node": node_name
         }
+        if secret_findings:
+            result["secret_warning"] = (
+                f"Stored, but the card looks like it contains a credential ({', '.join(secret_findings)}). "
+                "Anyone holding the Qdrant key can read it."
+            )
+        return result
     except PermissionError:
         raise
     except Exception as e:
